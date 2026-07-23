@@ -106,6 +106,47 @@ create table expenses (
   created_at timestamptz not null default now()
 );
 
+create table recurring_expenses (
+  id uuid primary key default gen_random_uuid(),
+  description text not null,
+  category text not null,
+  amount numeric(10,2) not null check (amount >= 0),
+  due_day integer not null check (due_day between 1 and 31),
+  active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+create table cash_withdrawals (
+  id uuid primary key default gen_random_uuid(),
+  amount numeric(10,2) not null check (amount > 0),
+  reason text not null,
+  responsible_user uuid,
+  created_at timestamptz not null default now()
+);
+
+create table publications (
+  id uuid primary key default gen_random_uuid(),
+  title text not null,
+  subtitle text,
+  theme text,
+  image_url text,
+  starts_at timestamptz,
+  ends_at timestamptz,
+  is_published boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table customer_campaigns (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  audience_filter jsonb not null default '{}'::jsonb,
+  message_template text not null,
+  status text not null default 'draft' check (status in ('draft','scheduled','sending','sent','cancelled')),
+  scheduled_at timestamptz,
+  created_at timestamptz not null default now()
+);
+
 create table delivery_zones (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
@@ -133,8 +174,17 @@ alter table order_items enable row level security;
 alter table favorites enable row level security;
 alter table coupons enable row level security;
 alter table expenses enable row level security;
+alter table recurring_expenses enable row level security;
+alter table cash_withdrawals enable row level security;
+alter table publications enable row level security;
+alter table customer_campaigns enable row level security;
 alter table delivery_zones enable row level security;
 
 create policy "public can read active products" on products for select using (is_active = true);
 create policy "public can read categories" on categories for select using (true);
 create policy "public can read delivery zones" on delivery_zones for select using (active = true);
+create policy "public can read published content" on publications for select using (
+  is_published = true
+  and (starts_at is null or starts_at <= now())
+  and (ends_at is null or ends_at >= now())
+);
