@@ -1,52 +1,46 @@
 "use client";
+/* eslint-disable react-hooks/set-state-in-effect, react-hooks/purity */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-
-type Product = {
-  id: number;
-  code: string;
-  name: string;
-  category: string;
-  brand: string;
-  type: string;
-  cost: number;
-  price: number;
-  oldPrice?: number;
-  stock: number;
-  image: string;
-  badge?: string;
-  adult?: boolean;
-  description: string;
-};
+import {
+  completeSale as completeSaleRemote,
+  createCustomer,
+  createExpense as createExpenseRemote,
+  createWithdrawal as createWithdrawalRemote,
+  deleteProduct as deleteProductRemote,
+  deletePublication as deletePublicationRemote,
+  hasAdminSession,
+  isSupabaseConfigured,
+  loadAdminData,
+  loadStorefront,
+  registerAdmin,
+  saveProduct as saveProductRemote,
+  savePublication as savePublicationRemote,
+  setPublicationState,
+  signInAdmin,
+  signOutAdmin,
+  type Expense,
+  type PaymentMethod,
+  type PosItem,
+  type Product,
+  type Publication,
+  type Sale,
+  type Withdrawal,
+} from "../lib/andora-data";
 
 type CartItem = Product & { quantity: number; giftWrap?: boolean };
-type Publication = { id: number; title: string; subtitle: string; theme: string; active: boolean; startsAt: string; endsAt: string; image?: string };
-type PosItem = Product & { quantity: number };
-type PaymentMethod = "Dinheiro" | "Pix" | "Débito" | "Crédito";
-type Sale = {
-  id: string;
-  createdAt: string;
-  items: PosItem[];
-  revenue: number;
-  cost: number;
-  profit: number;
-  payments: { method: PaymentMethod; amount: number }[];
-  status: "Pago" | "Pendente";
-  customer?: string;
-  dueDate?: string;
-};
 
 const WHATSAPP = "5598984447708";
 
 const initialProducts: Product[] = [
-  { id: 1, code: "AND-001", name: "Aura Élégance", category: "Perfumes femininos", brand: "Andora Selection", type: "Eau de Parfum", cost: 98, price: 189.9, oldPrice: 229.9, stock: 12, badge: "Mais vendido", image: "https://images.unsplash.com/photo-1541643600914-78b084683601?auto=format&fit=crop&w=900&q=86", description: "Floral âmbar elegante, com saída luminosa e fundo envolvente." },
-  { id: 2, code: "AND-002", name: "Noble Intense", category: "Perfumes masculinos", brand: "Andora Selection", type: "Eau de Parfum", cost: 116, price: 219.9, stock: 7, badge: "Lançamento", image: "https://images.unsplash.com/photo-1594035910387-fea47794261f?auto=format&fit=crop&w=900&q=86", description: "Madeiras nobres, especiarias quentes e assinatura marcante." },
-  { id: 3, code: "AND-003", name: "Maison Dorée", category: "Perfumes importados", brand: "Maison", type: "Importado", cost: 214, price: 349.9, stock: 4, badge: "Exclusivo", image: "https://images.unsplash.com/photo-1587017539504-67cfbddac569?auto=format&fit=crop&w=900&q=86", description: "Uma fragrância sofisticada para ocasiões inesquecíveis." },
-  { id: 4, code: "AND-004", name: "Essência 214", category: "Contratipos", brand: "Essencial", type: "Contratipo", cost: 36, price: 79.9, stock: 18, badge: "Favorito", image: "https://images.unsplash.com/photo-1619994403073-2cec844b8e63?auto=format&fit=crop&w=900&q=86", description: "Alta fixação e personalidade, inspirada em grandes clássicos." },
-  { id: 5, code: "AND-005", name: "Caixa Cacau Nobre", category: "Chocolates", brand: "Cacau Nobre", type: "Chocolate fino", cost: 38, price: 69.9, stock: 20, badge: "Presenteável", image: "https://images.unsplash.com/photo-1549007994-cb92caebd54b?auto=format&fit=crop&w=900&q=86", description: "Seleção de bombons finos em embalagem especial." },
-  { id: 6, code: "AND-006", name: "Ritual de Carinho", category: "Kits presente", brand: "Andora", type: "Kit", cost: 87, price: 159.9, oldPrice: 179.9, stock: 8, badge: "Kit especial", image: "https://images.unsplash.com/photo-1602173574767-37ac01994b2a?auto=format&fit=crop&w=900&q=86", description: "Perfume, chocolate fino, cartão e embalagem premium." },
-  { id: 7, code: "AND-007", name: "Velvet Body Cream", category: "Cosméticos", brand: "Andora Beauty", type: "Hidratante", cost: 24.5, price: 54.9, stock: 15, image: "https://images.unsplash.com/photo-1571781926291-c477ebfd024b?auto=format&fit=crop&w=900&q=86", description: "Textura aveludada, fragrância delicada e hidratação profunda." },
-  { id: 8, code: "AND-008", name: "Noir Privé", category: "Produtos Especiais", brand: "Linha Íntima", type: "Bem-estar", cost: 61, price: 119.9, stock: 9, adult: true, badge: "+18", image: "https://images.unsplash.com/photo-1615634260167-c8cdede054de?auto=format&fit=crop&w=900&q=80", description: "Item de bem-estar íntimo em embalagem reservada e envio discreto." },
+  { id: "seed-1", code: "AND-001", name: "Aura Élégance", category: "Perfumes femininos", brand: "Andora Selection", type: "Eau de Parfum", cost: 98, price: 189.9, oldPrice: 229.9, stock: 12, badge: "Mais vendido", image: "https://images.unsplash.com/photo-1541643600914-78b084683601?auto=format&fit=crop&w=900&q=86", description: "Floral âmbar elegante, com saída luminosa e fundo envolvente." },
+  { id: "seed-2", code: "AND-002", name: "Noble Intense", category: "Perfumes masculinos", brand: "Andora Selection", type: "Eau de Parfum", cost: 116, price: 219.9, stock: 7, badge: "Lançamento", image: "https://images.unsplash.com/photo-1594035910387-fea47794261f?auto=format&fit=crop&w=900&q=86", description: "Madeiras nobres, especiarias quentes e assinatura marcante." },
+  { id: "seed-3", code: "AND-003", name: "Maison Dorée", category: "Perfumes importados", brand: "Maison", type: "Importado", cost: 214, price: 349.9, stock: 4, badge: "Exclusivo", image: "https://images.unsplash.com/photo-1587017539504-67cfbddac569?auto=format&fit=crop&w=900&q=86", description: "Uma fragrância sofisticada para ocasiões inesquecíveis." },
+  { id: "seed-4", code: "AND-004", name: "Essência 214", category: "Contratipos", brand: "Essencial", type: "Contratipo", cost: 36, price: 79.9, stock: 18, badge: "Favorito", image: "https://images.unsplash.com/photo-1619994403073-2cec844b8e63?auto=format&fit=crop&w=900&q=86", description: "Alta fixação e personalidade, inspirada em grandes clássicos." },
+  { id: "seed-5", code: "AND-005", name: "Caixa Cacau Nobre", category: "Chocolates", brand: "Cacau Nobre", type: "Chocolate fino", cost: 38, price: 69.9, stock: 20, badge: "Presenteável", image: "https://images.unsplash.com/photo-1549007994-cb92caebd54b?auto=format&fit=crop&w=900&q=86", description: "Seleção de bombons finos em embalagem especial." },
+  { id: "seed-6", code: "AND-006", name: "Ritual de Carinho", category: "Kits presente", brand: "Andora", type: "Kit", cost: 87, price: 159.9, oldPrice: 179.9, stock: 8, badge: "Kit especial", image: "https://images.unsplash.com/photo-1602173574767-37ac01994b2a?auto=format&fit=crop&w=900&q=86", description: "Perfume, chocolate fino, cartão e embalagem premium." },
+  { id: "seed-7", code: "AND-007", name: "Velvet Body Cream", category: "Cosméticos", brand: "Andora Beauty", type: "Hidratante", cost: 24.5, price: 54.9, stock: 15, image: "https://images.unsplash.com/photo-1571781926291-c477ebfd024b?auto=format&fit=crop&w=900&q=86", description: "Textura aveludada, fragrância delicada e hidratação profunda." },
+  { id: "seed-8", code: "AND-008", name: "Noir Privé", category: "Produtos Especiais", brand: "Linha Íntima", type: "Bem-estar", cost: 61, price: 119.9, stock: 9, adult: true, badge: "+18", image: "https://images.unsplash.com/photo-1615634260167-c8cdede054de?auto=format&fit=crop&w=900&q=80", description: "Item de bem-estar íntimo em embalagem reservada e envio discreto." },
 ];
 
 const categories = ["Todos", "Perfumes femininos", "Perfumes masculinos", "Perfumes importados", "Contratipos", "Chocolates", "Kits presente", "Cosméticos", "Produtos Especiais"];
@@ -89,7 +83,7 @@ export default function Home() {
   const [introMode, setIntroMode] = useState<"checking" | "welcome" | "playing" | "hidden">("checking");
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [publications, setPublications] = useState<Publication[]>([
-    { id: 1, title: "Mês dos Pais Andora", subtitle: "Perfumes marcantes e kits preparados para surpreender.", theme: "Dia dos Pais", active: true, startsAt: "2026-07-20", endsAt: "2026-08-09" },
+    { id: "seed-publication", title: "Mês dos Pais Andora", subtitle: "Perfumes marcantes e kits preparados para surpreender.", theme: "Dia dos Pais", active: true, startsAt: "2026-07-20", endsAt: "2026-08-09" },
   ]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [cartOpen, setCartOpen] = useState(false);
@@ -104,7 +98,7 @@ export default function Home() {
   const [maxPrice, setMaxPrice] = useState(400);
   const [promoOnly, setPromoOnly] = useState(false);
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [favorites, setFavorites] = useState<number[]>([]);
+  const [favorites, setFavorites] = useState<string[]>([]);
   const [toast, setToast] = useState("");
   const [orderNumber, setOrderNumber] = useState("");
   const [delivery, setDelivery] = useState("Centro");
@@ -117,22 +111,38 @@ export default function Home() {
     setIntroMode(isAdmin || introSeen ? "hidden" : "welcome");
     const saved = localStorage.getItem("andora-cart");
     if (saved) setCart(JSON.parse(saved));
-    const savedProducts = localStorage.getItem("andora-products");
-    const savedPublications = localStorage.getItem("andora-publications");
-    if (savedProducts) setProducts(JSON.parse(savedProducts).map((product: Product, index: number) => ({
-      ...product,
-      code: product.code || `AND-${String(index + 1).padStart(3, "0")}`,
-      cost: Number(product.cost) || Number((product.price * .55).toFixed(2)),
-    })));
-    if (savedPublications) setPublications(JSON.parse(savedPublications));
+    if (isSupabaseConfigured) {
+      void loadStorefront()
+        .then((data) => {
+          if (!data) return;
+          if (data.products.length) setProducts(data.products);
+          setPublications(data.publications);
+        })
+        .catch(() => {
+          setToast("Banco ainda não inicializado. Exibindo catálogo de demonstração.");
+        });
+    } else {
+      const savedProducts = localStorage.getItem("andora-products");
+      const savedPublications = localStorage.getItem("andora-publications");
+      if (savedProducts) setProducts(JSON.parse(savedProducts));
+      if (savedPublications) setPublications(JSON.parse(savedPublications));
+    }
     if (window.location.pathname.startsWith("/admin")) setAdminOpen(true);
   }, []);
 
   useEffect(() => {
     localStorage.setItem("andora-cart", JSON.stringify(cart));
   }, [cart]);
-  useEffect(() => { localStorage.setItem("andora-products", JSON.stringify(products)); }, [products]);
-  useEffect(() => { localStorage.setItem("andora-publications", JSON.stringify(publications)); }, [publications]);
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      localStorage.setItem("andora-products", JSON.stringify(products));
+    }
+  }, [products]);
+  useEffect(() => {
+    if (!isSupabaseConfigured) {
+      localStorage.setItem("andora-publications", JSON.stringify(publications));
+    }
+  }, [publications]);
 
   useEffect(() => {
     if (!toast) return;
@@ -164,7 +174,7 @@ export default function Home() {
     setToast(`${product.name} foi para sua sacola`);
   }
 
-  function updateQuantity(id: number, amount: number) {
+  function updateQuantity(id: string, amount: number) {
     setCart((current) => current.map((item) => item.id === id ? { ...item, quantity: item.quantity + amount } : item).filter((item) => item.quantity > 0));
   }
 
@@ -445,7 +455,7 @@ export default function Home() {
       </div>}
 
       {accountOpen && <div className="modal-backdrop" onMouseDown={() => setAccountOpen(false)}>
-        <section className="account-modal" onMouseDown={(e) => e.stopPropagation()}><button className="close" onClick={() => setAccountOpen(false)}><Icon name="x"/></button><span className="eyebrow">Clube Andora</span><h2>Seu cantinho especial</h2><p>Cadastre-se para salvar favoritos, acompanhar compras e receber carinho no seu aniversário.</p><form onSubmit={(e) => { e.preventDefault(); setToast("Cadastro salvo com sucesso!"); setAccountOpen(false); }}><label>Nome<input required /></label><label>WhatsApp<input required /></label><label>Endereço<input required /></label><label>Aniversário<input type="date"/></label><label>Preferências<select><option>Perfumes femininos</option><option>Perfumes masculinos</option><option>Chocolates e presentes</option><option>Cosméticos</option></select></label><label className="check-label"><input type="checkbox" defaultChecked/><span/> Quero receber promoções no WhatsApp</label><button className="button primary full">Criar meu cadastro</button></form><div className="loyalty-box"><Icon name="gift"/><div><strong>Programa Andora</strong><span>A cada 5 compras, ganhe 15% de desconto na próxima.</span></div><b>0/5</b></div></section>
+        <section className="account-modal" onMouseDown={(e) => e.stopPropagation()}><button className="close" onClick={() => setAccountOpen(false)}><Icon name="x"/></button><span className="eyebrow">Clube Andora</span><h2>Seu cantinho especial</h2><p>Cadastre-se para salvar favoritos, acompanhar compras e receber carinho no seu aniversário.</p><form onSubmit={async (e) => { e.preventDefault(); const data = new FormData(e.currentTarget); try { if (isSupabaseConfigured) await createCustomer({ name: String(data.get("name")), phone: String(data.get("phone")), address: String(data.get("address")), birthday: String(data.get("birthday") || ""), preference: String(data.get("preference") || ""), acceptsWhatsapp: data.get("acceptsWhatsapp") === "on" }); setToast("Cadastro salvo com sucesso!"); setAccountOpen(false); } catch { setToast("Não foi possível salvar o cadastro agora."); } }}><label>Nome<input name="name" required /></label><label>WhatsApp<input name="phone" required /></label><label>Endereço<input name="address" required /></label><label>Aniversário<input name="birthday" type="date"/></label><label>Preferências<select name="preference"><option>Perfumes femininos</option><option>Perfumes masculinos</option><option>Chocolates e presentes</option><option>Cosméticos</option></select></label><label className="check-label"><input name="acceptsWhatsapp" type="checkbox" defaultChecked/><span/> Quero receber promoções no WhatsApp</label><button className="button primary full">Criar meu cadastro</button></form><div className="loyalty-box"><Icon name="gift"/><div><strong>Programa Andora</strong><span>A cada 5 compras, ganhe 15% de desconto na próxima.</span></div><b>0/5</b></div></section>
       </div>}
 
       {adminOpen && <AdminPanel tab={adminTab} setTab={setAdminTab} close={() => window.location.pathname.startsWith("/admin") ? window.location.assign("/") : setAdminOpen(false)} products={products} setProducts={setProducts} publications={publications} setPublications={setPublications} />}
@@ -499,14 +509,18 @@ function AdminPanel({ tab, setTab, close, products, setProducts, publications, s
 }) {
   const tabs = ["Visão geral","PDV e vendas","Produtos","Pedidos","Clientes","Promoções","Publicações","Campanhas","Caixa e sangrias","Despesas","Relatórios"];
   const [authenticated,setAuthenticated] = useState(false);
+  const [authChecking,setAuthChecking] = useState(isSupabaseConfigured);
+  const [authError,setAuthError] = useState("");
+  const [authNotice,setAuthNotice] = useState("");
+  const [saving,setSaving] = useState(false);
   const [editor,setEditor] = useState<string|null>(null);
   const [editingProduct,setEditingProduct] = useState<Product|null>(null);
   const [editingPublication,setEditingPublication] = useState<Publication|null>(null);
   const [productImage,setProductImage] = useState("");
   const [publicationImage,setPublicationImage] = useState("");
   const [messageImage,setMessageImage] = useState("");
-  const [expenses,setExpenses] = useState([{id:1,description:"Reposição perfumes",category:"Estoque",amount:2450,date:"21/07/2026",recurring:false},{id:2,description:"Internet da loja",category:"Serviços",amount:119.9,date:"10/07/2026",recurring:true}]);
-  const [withdrawals,setWithdrawals] = useState([{id:1,reason:"Pagamento de entrega",amount:120,time:"18/07 • 17:42"}]);
+  const [expenses,setExpenses] = useState<Expense[]>(isSupabaseConfigured ? [] : [{id:"demo-expense-1",description:"Reposição perfumes",category:"Estoque",amount:2450,date:"2026-07-21",recurring:false},{id:"demo-expense-2",description:"Internet da loja",category:"Serviços",amount:119.9,date:"2026-07-10",recurring:true}]);
+  const [withdrawals,setWithdrawals] = useState<Withdrawal[]>(isSupabaseConfigured ? [] : [{id:"demo-withdrawal-1",reason:"Pagamento de entrega",amount:120,time:"18/07 • 17:42"}]);
   const [message,setMessage] = useState("Olá, {nome}! A Andora Essence preparou uma seleção especial para você. Posso te mostrar?");
   const [sales,setSales] = useState<Sale[]>([]);
   const [posItems,setPosItems] = useState<PosItem[]>([]);
@@ -519,8 +533,36 @@ function AdminPanel({ tab, setTab, close, products, setProducts, publications, s
   const [pendingPayment,setPendingPayment] = useState(false);
   const [pendingCustomer,setPendingCustomer] = useState("");
   const [pendingDueDate,setPendingDueDate] = useState("");
-  useEffect(()=>{const saved=localStorage.getItem("andora-sales");if(saved)setSales(JSON.parse(saved))},[]);
-  useEffect(()=>{localStorage.setItem("andora-sales",JSON.stringify(sales))},[sales]);
+  useEffect(()=>{
+    if (!isSupabaseConfigured) {
+      const saved=localStorage.getItem("andora-sales");
+      if(saved)setSales(JSON.parse(saved));
+      setAuthChecking(false);
+      return;
+    }
+    void hasAdminSession().then((allowed)=>{
+      setAuthenticated(allowed);
+      setAuthChecking(false);
+    });
+  },[]);
+  useEffect(()=>{
+    if(!isSupabaseConfigured) localStorage.setItem("andora-sales",JSON.stringify(sales));
+  },[sales]);
+  useEffect(()=>{
+    if(!authenticated || !isSupabaseConfigured) return;
+    void Promise.all([loadAdminData(), loadStorefront()])
+      .then(([data, storefront])=>{
+        if(!data) return;
+        setSales(data.sales);
+        setExpenses(data.expenses);
+        setWithdrawals(data.withdrawals);
+        if (storefront) {
+          setProducts(storefront.products);
+          setPublications(storefront.publications);
+        }
+      })
+      .catch(()=>setAuthError("Não foi possível carregar os dados administrativos."));
+  },[authenticated]);
   const posTotal=posItems.reduce((sum,item)=>sum+item.price*item.quantity,0);
   const posCost=posItems.reduce((sum,item)=>sum+item.cost*item.quantity,0);
   const posProfit=posTotal-posCost;
@@ -534,35 +576,120 @@ function AdminPanel({ tab, setTab, close, products, setProducts, publications, s
   const monthSales=sales.filter(s=>s.createdAt.slice(0,7)===monthKey);
   const todayProfit=todaySales.reduce((sum,s)=>sum+s.profit,0);
   const monthProfit=monthSales.reduce((sum,s)=>sum+s.profit,0);
-  if(!authenticated) return <div className="modal-backdrop admin-login"><section><button className="close" onClick={close}><Icon name="x"/></button><img src="/assets/andora-logo-dark.png" alt="Andora Essence"/><span className="eyebrow">Área privada</span><h2>Gestão Andora</h2><p>O painel administrativo não é exibido na loja pública. Ambiente demonstrativo: use qualquer senha com 6 ou mais caracteres.</p><form onSubmit={e=>{e.preventDefault();setAuthenticated(true)}}><label>E-mail<input type="email" defaultValue="admin@andoraessence.com.br" required/></label><label>Senha<input type="password" minLength={6} required/></label><button className="button primary full">Entrar com segurança</button></form></section></div>;
-  function saveProduct(e:React.FormEvent<HTMLFormElement>){e.preventDefault();const d=new FormData(e.currentTarget);const p:Product={id:editingProduct?.id??Date.now(),code:String(d.get("code")).trim(),name:String(d.get("name")),category:String(d.get("category")),brand:String(d.get("brand")),type:String(d.get("type")),cost:Number(d.get("cost")),price:Number(d.get("price")),oldPrice:Number(d.get("oldPrice"))||undefined,stock:Number(d.get("stock")),image:productImage||String(d.get("image"))||editingProduct?.image||initialProducts[0].image,badge:String(d.get("badge"))||undefined,adult:d.get("adult")==="on",description:String(d.get("description"))};setProducts(list=>editingProduct?list.map(x=>x.id===p.id?p:x):[p,...list]);setEditor(null);setProductImage("")}
-  function savePublication(e:React.FormEvent<HTMLFormElement>){e.preventDefault();const d=new FormData(e.currentTarget);const p:Publication={id:editingPublication?.id??Date.now(),title:String(d.get("title")),subtitle:String(d.get("subtitle")),theme:String(d.get("theme")),active:d.get("active")==="on",startsAt:String(d.get("startsAt")),endsAt:String(d.get("endsAt")),image:publicationImage||undefined};setPublications(list=>editingPublication?list.map(x=>x.id===p.id?p:x):[p,...list]);setEditor(null);setPublicationImage("")}
+  if(authChecking) return <div className="modal-backdrop admin-login"><section><img src="/assets/andora-logo-dark.png" alt="Andora Essence"/><span className="eyebrow">Área privada</span><h2>Verificando acesso…</h2><p>Aguarde um instante.</p></section></div>;
+  if(!authenticated) return <div className="modal-backdrop admin-login"><section><button className="close" onClick={close}><Icon name="x"/></button><img src="/assets/andora-logo-dark.png" alt="Andora Essence"/><span className="eyebrow">Área privada</span><h2>Gestão Andora</h2><p>{isSupabaseConfigured ? "Entre com o acesso administrativo protegido pelo Supabase." : "Integração ainda não ativada. Modo local de demonstração."}</p>{authError&&<p className="auth-message error">{authError}</p>}{authNotice&&<p className="auth-message success">{authNotice}</p>}<form onSubmit={async e=>{e.preventDefault();const d=new FormData(e.currentTarget);setAuthError("");setAuthNotice("");setSaving(true);try{if(isSupabaseConfigured)await signInAdmin(String(d.get("email")),String(d.get("password")));setAuthenticated(true)}catch(error){setAuthError(error instanceof Error?error.message:"Não foi possível entrar.")}finally{setSaving(false)}}}><label>E-mail<input name="email" type="email" defaultValue="andoraessence@gmail.com" required/></label><label>Senha administrativa<input name="password" type="password" minLength={8} required/></label><button className="button primary full" disabled={saving}>{saving?"Entrando…":"Entrar com segurança"}</button>{isSupabaseConfigured&&<button type="button" className="text-button" disabled={saving} onClick={async()=>{const form=document.querySelector(".admin-login form") as HTMLFormElement|null;if(!form)return;const d=new FormData(form);setAuthError("");setAuthNotice("");setSaving(true);try{await registerAdmin(String(d.get("email")),String(d.get("password")));setAuthNotice("Acesso solicitado. Confirme o e-mail recebido e depois entre no painel.")}catch(error){setAuthError(error instanceof Error?error.message:"Não foi possível criar o acesso.")}finally{setSaving(false)}}}>Primeiro acesso: criar senha do painel</button>}</form></section></div>;
+  async function saveProduct(e:React.FormEvent<HTMLFormElement>){e.preventDefault();const d=new FormData(e.currentTarget);const p:Product={id:editingProduct?.id??`new-${crypto.randomUUID()}`,code:String(d.get("code")).trim(),name:String(d.get("name")),category:String(d.get("category")),brand:String(d.get("brand")),type:String(d.get("type")),cost:Number(d.get("cost")),price:Number(d.get("price")),oldPrice:Number(d.get("oldPrice"))||undefined,stock:Number(d.get("stock")),image:productImage||String(d.get("image"))||editingProduct?.image||initialProducts[0].image,badge:String(d.get("badge"))||undefined,adult:d.get("adult")==="on",description:String(d.get("description"))};setSaving(true);try{const saved=isSupabaseConfigured?await saveProductRemote(p):p;setProducts(list=>editingProduct?list.map(x=>x.id===editingProduct.id?saved:x):[saved,...list]);setEditor(null);setProductImage("")}catch(error){alert(error instanceof Error?error.message:"Não foi possível salvar o produto.")}finally{setSaving(false)}}
+  async function savePublication(e:React.FormEvent<HTMLFormElement>){e.preventDefault();const d=new FormData(e.currentTarget);const p:Publication={id:editingPublication?.id??`new-${crypto.randomUUID()}`,title:String(d.get("title")),subtitle:String(d.get("subtitle")),theme:String(d.get("theme")),active:d.get("active")==="on",startsAt:String(d.get("startsAt")),endsAt:String(d.get("endsAt")),image:publicationImage||undefined};setSaving(true);try{const saved=isSupabaseConfigured?await savePublicationRemote(p):p;setPublications(list=>editingPublication?list.map(x=>x.id===editingPublication.id?saved:x):[saved,...list]);setEditor(null);setPublicationImage("")}catch(error){alert(error instanceof Error?error.message:"Não foi possível salvar a campanha.")}finally{setSaving(false)}}
   const openProduct=(p:Product|null)=>{setEditingProduct(p);setProductImage(p?.image??"");setEditor("product")}; const openPublication=(p:Publication|null)=>{setEditingPublication(p);setPublicationImage(p?.image??"");setEditor("publication")};
   function chooseProductImage(file?:File){if(!file)return;if(file.size>2_500_000){alert("Escolha uma imagem de até 2,5 MB.");return}const reader=new FileReader();reader.onload=()=>setProductImage(String(reader.result));reader.readAsDataURL(file)}
   function chooseCampaignImage(file:File|undefined, target:"publication"|"message"){if(!file)return;if(file.size>4_000_000){alert("Escolha uma imagem de até 4 MB.");return}const reader=new FileReader();reader.onload=()=>target==="publication"?setPublicationImage(String(reader.result)):setMessageImage(String(reader.result));reader.readAsDataURL(file)}
   function addPosItem(product:Product){if(product.stock<1){alert("Produto sem estoque.");return}setPosItems(items=>{const found=items.find(item=>item.id===product.id);return found?items.map(item=>item.id===product.id?{...item,quantity:Math.min(item.quantity+1,product.stock)}:item):[...items,{...product,quantity:1}]});setPosSearch("")}
-  function changePosQuantity(id:number,amount:number){setPosItems(items=>items.map(item=>item.id===id?{...item,quantity:Math.min(item.stock,item.quantity+amount)}:item).filter(item=>item.quantity>0))}
-  function finishPosSale(){
+  function changePosQuantity(id:string,amount:number){setPosItems(items=>items.map(item=>item.id===id?{...item,quantity:Math.min(item.stock,item.quantity+amount)}:item).filter(item=>item.quantity>0))}
+  async function finishPosSale(){
     if(!posItems.length){alert("Adicione pelo menos um produto à venda.");return}
     if(splitPayment&&(firstAmount<=0||secondAmount<=0)){alert("Informe quanto será pago na primeira forma. O restante será calculado automaticamente.");return}
     if(!pendingPayment&&cashPart>0&&(Number(cashReceived)||0)<cashPart){alert("O valor recebido em dinheiro é menor que a parte em espécie.");return}
     if(pendingPayment&&(!pendingCustomer.trim()||!pendingDueDate)){alert("Informe o cliente e o vencimento do pagamento pendente.");return}
     const sale:Sale={id:`VD-${String(Date.now()).slice(-6)}`,createdAt:new Date().toISOString(),items:posItems,revenue:posTotal,cost:posCost,profit:posProfit,payments:pendingPayment?[]:[{method:paymentOne,amount:firstAmount},...(splitPayment?[{method:paymentTwo,amount:secondAmount}]:[])],status:pendingPayment?"Pendente":"Pago",customer:pendingCustomer||undefined,dueDate:pendingDueDate||undefined};
-    setSales(list=>[sale,...list]);
-    setProducts(list=>list.map(product=>{const sold=posItems.find(item=>item.id===product.id);return sold?{...product,stock:Math.max(product.stock-sold.quantity,0)}:product}));
-    setPosItems([]);setPaymentOneValue("");setCashReceived("");setPendingPayment(false);setPendingCustomer("");setPendingDueDate("");
-    alert(`Venda ${sale.id} registrada. Lucro: ${money(sale.profit)}${change>0?` • Troco: ${money(change)}`:""}`);
+    setSaving(true);
+    try {
+      if(isSupabaseConfigured) await completeSaleRemote(sale);
+      setSales(list=>[sale,...list]);
+      setProducts(list=>list.map(product=>{const sold=posItems.find(item=>item.id===product.id);return sold?{...product,stock:Math.max(product.stock-sold.quantity,0)}:product}));
+      setPosItems([]);setPaymentOneValue("");setCashReceived("");setPendingPayment(false);setPendingCustomer("");setPendingDueDate("");
+      alert(`Venda ${sale.id} registrada. Lucro: ${money(sale.profit)}${change>0?` • Troco: ${money(change)}`:""}`);
+    } catch(error) {
+      alert(error instanceof Error ? error.message : "Não foi possível concluir a venda.");
+    } finally {
+      setSaving(false);
+    }
+  }
+  async function removeProduct(product: Product) {
+    if (!confirm(`Excluir ${product.name}?`)) return;
+    try {
+      if (isSupabaseConfigured && !product.id.startsWith("seed-")) {
+        await deleteProductRemote(product.id);
+      }
+      setProducts((current) => current.filter((item) => item.id !== product.id));
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Não foi possível excluir o produto.");
+    }
+  }
+  async function togglePublication(publication: Publication) {
+    const active = !publication.active;
+    try {
+      if (isSupabaseConfigured && !publication.id.startsWith("seed-")) {
+        await setPublicationState(publication.id, active);
+      }
+      setPublications((current) =>
+        current.map((item) =>
+          item.id === publication.id ? { ...item, active } : item,
+        ),
+      );
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Não foi possível alterar a publicação.");
+    }
+  }
+  async function removePublication(publication: Publication) {
+    if (!confirm("Excluir publicação?")) return;
+    try {
+      if (isSupabaseConfigured && !publication.id.startsWith("seed-")) {
+        await deletePublicationRemote(publication.id);
+      }
+      setPublications((current) =>
+        current.filter((item) => item.id !== publication.id),
+      );
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Não foi possível excluir a publicação.");
+    }
+  }
+  async function saveExpense(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const data = new FormData(e.currentTarget);
+    const expense: Omit<Expense, "id"> = {
+      description: String(data.get("description")),
+      category: String(data.get("category")),
+      amount: Number(data.get("amount")),
+      date: String(data.get("date")),
+      recurring: data.get("recurring") === "on",
+    };
+    try {
+      const saved = isSupabaseConfigured
+        ? await createExpenseRemote(expense)
+        : { ...expense, id: `demo-${crypto.randomUUID()}` };
+      setExpenses((current) => [saved, ...current]);
+      setEditor(null);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Não foi possível registrar a despesa.");
+    }
+  }
+  async function saveWithdrawal(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const data = new FormData(e.currentTarget);
+    const withdrawal = {
+      reason: String(data.get("reason")),
+      amount: Number(data.get("amount")),
+    };
+    try {
+      const saved = isSupabaseConfigured
+        ? await createWithdrawalRemote(withdrawal)
+        : { ...withdrawal, id: `demo-${crypto.randomUUID()}`, time: "Agora" };
+      setWithdrawals((current) => [saved, ...current]);
+      setEditor(null);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Não foi possível registrar a sangria.");
+    }
   }
   return <div className="admin-shell">
-    <aside><img className="admin-brand-image" src="/assets/andora-logo-light.png" alt="Andora Essence"/><nav>{tabs.map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}</button>)}</nav><button onClick={close}>← Sair do painel</button></aside>
+    <aside><img className="admin-brand-image" src="/assets/andora-logo-light.png" alt="Andora Essence"/><nav>{tabs.map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}</button>)}</nav><button onClick={()=>{void signOutAdmin();close()}}>← Sair do painel</button></aside>
     <section className="admin-main"><header><div><span>Painel administrativo • ambiente privado</span><h1>{tab}</h1></div><div className="admin-user"><span>AE</span><div><strong>Andora Essence</strong><small>Administrador</small></div></div></header>
       {tab==="Visão geral"&&<><div className="metric-grid">{[["Vendas hoje",money(todaySales.reduce((sum,s)=>sum+s.revenue,0)),`${todaySales.length} vendas`],["Lucro de hoje",money(todayProfit),"Calculado pelo custo"],["Lucro do mês",money(monthProfit),`${monthSales.length} vendas`],["Estoque baixo",`${products.filter(p=>p.stock<6).length} itens`,"Repor agora"]].map(m=><article key={m[0]}><span>{m[0]}</span><strong>{m[1]}</strong><small>{m[2]}</small></article>)}</div><div className="admin-grid"><article className="chart-card"><div className="card-title"><h3>Resultado financeiro real</h3><button onClick={()=>setTab("PDV e vendas")}>Abrir PDV</button></div><div className="profit-summary"><div><span>Faturamento mensal</span><strong>{money(monthSales.reduce((sum,s)=>sum+s.revenue,0))}</strong></div><div><span>Custo dos produtos</span><strong>{money(monthSales.reduce((sum,s)=>sum+s.cost,0))}</strong></div><div className="profit-highlight"><span>Lucro bruto</span><strong>{money(monthProfit)}</strong></div></div></article><article className="recent-card"><div className="card-title"><h3>Ações rápidas</h3></div><div className="quick-actions"><button onClick={()=>setTab("PDV e vendas")}>+ Nova venda no PDV</button><button onClick={()=>openProduct(null)}>+ Cadastrar produto</button><button onClick={()=>openPublication(null)}>+ Criar campanha visual</button><button onClick={()=>setEditor("expense")}>+ Lançar despesa</button></div></article></div></>}
       {tab==="PDV e vendas"&&<><div className="metric-grid">{[["Venda atual",money(posTotal),`${posItems.reduce((s,i)=>s+i.quantity,0)} itens`],["Custo da venda",money(posCost),"Somente administrativo"],["Lucro desta venda",money(posProfit),posTotal?`${((posProfit/posTotal)*100).toFixed(1)}% de margem`:"Aguardando itens"],["Lucro do mês",money(monthProfit),`${monthSales.length} vendas`]].map(m=><article key={m[0]}><span>{m[0]}</span><strong>{m[1]}</strong><small>{m[2]}</small></article>)}</div><div className="pos-layout"><section className="pos-catalog"><div className="pos-heading"><div><span className="eyebrow">Venda de balcão</span><h2>Localize por nome ou código</h2></div><div className="pos-search"><Icon name="search"/><input value={posSearch} onChange={e=>setPosSearch(e.target.value)} placeholder="Ex.: AND-001 ou perfume"/></div></div><div className="pos-product-grid">{products.filter(p=>`${p.code} ${p.name}`.toLowerCase().includes(posSearch.toLowerCase())).slice(0,12).map(p=><button key={p.id} onClick={()=>addPosItem(p)} disabled={p.stock<1}><img src={p.image} alt=""/><span><small>{p.code}</small><strong>{p.name}</strong><em>{money(p.price)} • {p.stock} un.</em></span><b>+</b></button>)}</div></section><aside className="pos-receipt"><div className="receipt-head"><span>Venda em andamento</span><strong>{posItems.length?`${posItems.length} produtos`:"Carrinho vazio"}</strong></div><div className="receipt-items">{posItems.map(item=><div key={item.id}><span><strong>{item.name}</strong><small>{item.code} • {money(item.price)} cada</small></span><div className="pos-qty"><button onClick={()=>changePosQuantity(item.id,-1)}>−</button><b>{item.quantity}</b><button onClick={()=>changePosQuantity(item.id,1)}>+</button></div><strong>{money(item.price*item.quantity)}</strong></div>)}</div><div className="receipt-total"><span>Subtotal <b>{money(posTotal)}</b></span><span className="receipt-profit">Lucro estimado <b>{money(posProfit)}</b></span><strong>Total <b>{money(posTotal)}</b></strong></div><div className="payment-box"><label className="pending-toggle"><input type="checkbox" checked={pendingPayment} onChange={e=>setPendingPayment(e.target.checked)}/> Cadastrar como pagamento pendente</label>{pendingPayment?<div className="pending-fields"><label>Cliente<input value={pendingCustomer} onChange={e=>setPendingCustomer(e.target.value)} placeholder="Nome do cliente"/></label><label>Vencimento<input type="date" value={pendingDueDate} onChange={e=>setPendingDueDate(e.target.value)}/></label></div>:<><div className="payment-row"><label>Forma de pagamento<select value={paymentOne} onChange={e=>setPaymentOne(e.target.value as PaymentMethod)}><option>Pix</option><option>Dinheiro</option><option>Débito</option><option>Crédito</option></select></label><label className="split-toggle"><input type="checkbox" checked={splitPayment} onChange={e=>setSplitPayment(e.target.checked)}/> Pagamento dividido</label></div>{splitPayment&&<div className="split-grid"><label>Valor na 1ª forma<input type="number" step=".01" value={paymentOneValue} onChange={e=>setPaymentOneValue(e.target.value)} placeholder="0,00"/></label><label>2ª forma<select value={paymentTwo} onChange={e=>setPaymentTwo(e.target.value as PaymentMethod)}><option>Dinheiro</option><option>Pix</option><option>Débito</option><option>Crédito</option></select></label><div>Restante automático<strong>{money(secondAmount)}</strong></div></div>}{cashPart>0&&<label>Valor recebido em dinheiro<input type="number" step=".01" value={cashReceived} onChange={e=>setCashReceived(e.target.value)} placeholder={money(cashPart)}/><small className="change-value">Troco: <b>{money(change)}</b></small></label>}</>}</div><button className="button primary full pos-finish" onClick={finishPosSale}>{pendingPayment?"Registrar pendência":"Finalizar venda"} • {money(posTotal)}</button></aside></div><article className="table-card sales-history"><div className="card-title"><div><h3>Histórico de vendas</h3><p className="muted-copy">Lucro individual, pagamentos e valores pendentes.</p></div><button onClick={()=>window.print()}>Exportar PDF</button></div><div className="table-wrap"><table><thead><tr><th>Venda</th><th>Data</th><th>Pagamento</th><th>Total</th><th>Lucro</th><th>Status</th></tr></thead><tbody>{sales.length?sales.map(s=><tr key={s.id}><td><strong>{s.id}</strong><small className="table-note">{s.items.map(i=>`${i.quantity}x ${i.name}`).join(", ")}</small></td><td>{new Date(s.createdAt).toLocaleString("pt-BR",{dateStyle:"short",timeStyle:"short"})}</td><td>{s.status==="Pendente"?`${s.customer} • vence ${s.dueDate?.split("-").reverse().join("/")}`:s.payments.map(p=>`${p.method} ${money(p.amount)}`).join(" + ")}</td><td>{money(s.revenue)}</td><td className="profit-cell">{money(s.profit)}</td><td><span className={`sale-status ${s.status==="Pendente"?"pending":""}`}>{s.status}</span></td></tr>):<tr><td colSpan={6} className="empty-sales">Nenhuma venda registrada ainda. Faça a primeira venda no PDV acima.</td></tr>}</tbody></table></div></article></>}
-      {tab==="Produtos"&&<article className="table-card"><div className="card-title"><h3>Produtos e estoque</h3><button onClick={()=>openProduct(null)}>+ Novo produto</button></div><div className="table-wrap"><table><thead><tr><th>Código / Produto</th><th>Categoria</th><th>Custo</th><th>Venda</th><th>Estoque</th><th>Ações</th></tr></thead><tbody>{products.map(p=><tr key={p.id}><td><strong>{p.code}</strong><small className="table-note">{p.name} • {p.brand}</small></td><td>{p.category}</td><td>{money(p.cost)}</td><td>{money(p.price)}</td><td>{p.stock} un.</td><td><div className="row-actions"><button onClick={()=>openProduct(p)}>Editar</button><button onClick={()=>confirm(`Excluir ${p.name}?`)&&setProducts(x=>x.filter(i=>i.id!==p.id))}>Excluir</button></div></td></tr>)}</tbody></table></div></article>}
+      {tab==="Produtos"&&<article className="table-card"><div className="card-title"><h3>Produtos e estoque</h3><button onClick={()=>openProduct(null)}>+ Novo produto</button></div><div className="table-wrap"><table><thead><tr><th>Código / Produto</th><th>Categoria</th><th>Custo</th><th>Venda</th><th>Estoque</th><th>Ações</th></tr></thead><tbody>{products.map(p=><tr key={p.id}><td><strong>{p.code}</strong><small className="table-note">{p.name} • {p.brand}</small></td><td>{p.category}</td><td>{money(p.cost)}</td><td>{money(p.price)}</td><td>{p.stock} un.</td><td><div className="row-actions"><button onClick={()=>openProduct(p)}>Editar</button><button onClick={()=>{void removeProduct(p)}}>Excluir</button></div></td></tr>)}</tbody></table></div></article>}
       {tab==="Pedidos"&&<AdminTable title="Gestão de pedidos" action="Exportar" heads={["Pedido","Cliente","Total","Pagamento","Status"]} rows={[["AE-2048","Mariana S.","R$ 189,90","Pix","Pago"],["AE-2047","Joana R.","R$ 79,90","Pix","Em separação"],["AE-2046","Carlos M.","R$ 349,90","Pix","Saiu para entrega"]]}/>}
       {tab==="Clientes"&&<><div className="page-actions"><button className="button primary" onClick={()=>setEditor("message")}>Mensagem personalizada</button></div><AdminTable title="Clientes e aniversariantes" action="Exportar contatos" heads={["Cliente","WhatsApp","Compras","Preferência","Aniversário"]} rows={[["Mariana Silva","(98) 9 8844-1122","8","Perfumes","12/07"],["Joana Rocha","(98) 9 9123-7788","5","Presentes","23/07"],["Ana Luz","(98) 9 8455-2211","3","Chocolates","30/07"]]}/></>}
       {tab==="Promoções"&&<AdminTable title="Promoções, cupons e kits" action="+ Criar promoção" heads={["Cupom","Benefício","Produtos","Validade","Status"]} rows={[["BEMVINDA10","10% primeira compra","Todos","31/12/2026","Ativo"],["ANDORA15","15% fidelidade","Selecionados","Sem validade","Ativo"],["PRESENTE","Embalagem grátis","Kits","31/07/2026","Ativo"]]}/>}
-      {tab==="Publicações"&&<article className="table-card"><div className="card-title"><div><h3>Campanhas da loja pública</h3><p className="muted-copy">Crie banners sazonais com foto, texto e período de exibição.</p></div><button onClick={()=>openPublication(null)}>+ Nova campanha</button></div><div className="publication-grid">{publications.map(p=><article key={p.id}>{p.image&&<div className="publication-thumb"><img src={p.image} alt=""/></div>}<span className="status">{p.active?"Publicada":"Rascunho"}</span><small>{p.theme}</small><h3>{p.title}</h3><p>{p.subtitle}</p><div className="row-actions"><button onClick={()=>setPublications(x=>x.map(i=>i.id===p.id?{...i,active:!i.active}:i))}>{p.active?"Ocultar":"Publicar"}</button><button onClick={()=>openPublication(p)}>Editar</button><button onClick={()=>confirm("Excluir publicação?")&&setPublications(x=>x.filter(i=>i.id!==p.id))}>Excluir</button></div></article>)}</div></article>}
+      {tab==="Publicações"&&<article className="table-card"><div className="card-title"><div><h3>Campanhas da loja pública</h3><p className="muted-copy">Crie banners sazonais com foto, texto e período de exibição.</p></div><button onClick={()=>openPublication(null)}>+ Nova campanha</button></div><div className="publication-grid">{publications.map(p=><article key={p.id}>{p.image&&<div className="publication-thumb"><img src={p.image} alt=""/></div>}<span className="status">{p.active?"Publicada":"Rascunho"}</span><small>{p.theme}</small><h3>{p.title}</h3><p>{p.subtitle}</p><div className="row-actions"><button onClick={()=>{void togglePublication(p)}}>{p.active?"Ocultar":"Publicar"}</button><button onClick={()=>openPublication(p)}>Editar</button><button onClick={()=>{void removePublication(p)}}>Excluir</button></div></article>)}</div></article>}
       {tab==="Campanhas"&&<div className="campaign-admin"><article><span>WhatsApp marketing</span><h2>Fale com cada cliente do jeito certo.</h2><p>Segmente aniversariantes, preferências, clientes inativos ou histórico de compras. Use <b>{"{nome}"}</b> para personalizar.</p><button className="button primary" onClick={()=>setEditor("message")}>Criar mensagem</button></article><article className="campaign-list"><h3>Segmentos prontos</h3>{["Aniversariantes do mês • 12 clientes","Clientes de perfumes • 84 clientes","Sem comprar há 60 dias • 31 clientes","Clube fidelidade • 46 clientes"].map(x=><button key={x} onClick={()=>setEditor("message")}>{x}<Icon name="arrow"/></button>)}</article></div>}
       {tab==="Caixa e sangrias"&&<><div className="metric-grid">{[["Abertura","R$ 500,00","08:02"],["Entradas","R$ 4.386,50","38 vendas"],["Sangrias","R$ 620,00",`${withdrawals.length} registros`],["Saldo previsto","R$ 4.266,50","Caixa aberto"]].map(m=><article key={m[0]}><span>{m[0]}</span><strong>{m[1]}</strong><small>{m[2]}</small></article>)}</div><article className="table-card"><div className="card-title"><h3>Movimentações do caixa</h3><button onClick={()=>setEditor("withdrawal")}>+ Registrar sangria</button></div><div className="table-wrap"><table><thead><tr><th>Motivo</th><th>Horário</th><th>Responsável</th><th>Valor</th></tr></thead><tbody>{withdrawals.map(w=><tr key={w.id}><td>{w.reason}</td><td>{w.time}</td><td>Administrador</td><td>{money(w.amount)}</td></tr>)}</tbody></table></div></article></>}
       {tab==="Despesas"&&<><div className="page-actions"><button className="button primary" onClick={()=>setEditor("expense")}>+ Nova despesa</button></div><AdminTable title="Despesas fixas e variáveis" action="Exportar" heads={["Descrição","Categoria","Vencimento","Tipo","Valor"]} rows={expenses.map(x=>[x.description,x.category,x.date,x.recurring?"Recorrente":"Única",money(x.amount)])}/></>}
@@ -571,8 +698,8 @@ function AdminPanel({ tab, setTab, close, products, setProducts, publications, s
     {editor&&<div className="admin-editor-backdrop" onMouseDown={()=>setEditor(null)}><section className="admin-editor" onMouseDown={e=>e.stopPropagation()}><button className="close" onClick={()=>setEditor(null)}><Icon name="x"/></button>
       {editor==="product"&&<form onSubmit={saveProduct}><span className="eyebrow">Catálogo inteligente</span><h2>{editingProduct?"Editar produto":"Cadastrar produto"}</h2><div className="product-media-editor"><div className="product-photo-preview">{productImage?<img src={productImage} alt="Prévia do produto"/>:<><Icon name="plus" size={30}/><strong>Foto do produto</strong><span>JPG, PNG ou WebP</span></>}</div><div><label className="upload-button">Escolher foto do aparelho<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>chooseProductImage(e.target.files?.[0])}/></label><p>A imagem aparecerá automaticamente na vitrine. Para melhor resultado, use foto vertical e fundo limpo.</p><label>Ou cole uma URL<input name="image" value={productImage.startsWith("data:")?"":productImage} onChange={e=>setProductImage(e.target.value)} placeholder="https://..."/></label></div></div><div className="editor-fields"><label>Código do produto<input name="code" required defaultValue={editingProduct?.code} placeholder="AND-009"/></label><label>Nome do produto<input name="name" required defaultValue={editingProduct?.name}/></label><label>Categoria<select name="category" defaultValue={editingProduct?.category}>{categories.slice(1).map(c=><option key={c}>{c}</option>)}</select></label><label>Marca<input name="brand" defaultValue={editingProduct?.brand}/></label><label>Tipo / concentração<input name="type" defaultValue={editingProduct?.type}/></label><label>Custo de compra<input name="cost" type="number" step=".01" min="0" required defaultValue={editingProduct?.cost}/></label><label>Preço de venda<input name="price" type="number" step=".01" min="0" required defaultValue={editingProduct?.price}/></label><label>Preço anterior / promoção<input name="oldPrice" type="number" step=".01" defaultValue={editingProduct?.oldPrice}/></label><label>Estoque<input name="stock" type="number" min="0" required defaultValue={editingProduct?.stock}/></label><label>Selo da vitrine<input name="badge" defaultValue={editingProduct?.badge} placeholder="Lançamento, promoção..."/></label><label className="wide">Descrição<textarea name="description" required defaultValue={editingProduct?.description}/></label><label className="wide check-line"><input type="checkbox" name="adult" defaultChecked={editingProduct?.adult}/> Produto reservado para a área +18</label></div><button className="button primary full">Salvar e publicar na vitrine</button></form>}
       {editor==="publication"&&<form onSubmit={savePublication}><span className="eyebrow">Campanha visual</span><h2>{editingPublication?"Editar campanha":"Nova campanha"}</h2><div className="campaign-image-editor">{publicationImage?<div className="campaign-image-preview"><img src={publicationImage} alt="Prévia da campanha"/><button type="button" onClick={()=>setPublicationImage("")}>Remover foto</button></div>:<div className="campaign-upload-empty"><Icon name="plus" size={28}/><strong>Foto da campanha</strong><span>Opcional • JPG, PNG ou WebP</span></div>}<div><label className="upload-button">Escolher foto do celular ou computador<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>chooseCampaignImage(e.target.files?.[0],"publication")}/></label><p>Use uma foto horizontal ou vertical com boa luz. O site ajusta o enquadramento sem deixar o banner confuso.</p></div></div><div className="editor-fields"><label>Tema<select name="theme" defaultValue={editingPublication?.theme}><option>Dia das Mães</option><option>Dia dos Pais</option><option>Dia dos Namorados</option><option>Natal</option><option>Campanha personalizada</option></select></label><label>Título<input name="title" required defaultValue={editingPublication?.title}/></label><label className="wide">Texto<textarea name="subtitle" required defaultValue={editingPublication?.subtitle}/></label><label>Início<input type="date" name="startsAt" defaultValue={editingPublication?.startsAt}/></label><label>Fim<input type="date" name="endsAt" defaultValue={editingPublication?.endsAt}/></label><label className="wide check-line"><input type="checkbox" name="active" defaultChecked={editingPublication?.active??true}/> Publicar agora</label></div><button className="button primary full">Salvar campanha</button></form>}
-      {editor==="expense"&&<form onSubmit={e=>{e.preventDefault();const d=new FormData(e.currentTarget);setExpenses(x=>[{id:Date.now(),description:String(d.get("description")),category:String(d.get("category")),amount:Number(d.get("amount")),date:String(d.get("date")),recurring:d.get("recurring")==="on"},...x]);setEditor(null)}}><span className="eyebrow">Financeiro</span><h2>Lançar despesa</h2><div className="editor-fields"><label className="wide">Descrição<input name="description" required/></label><label>Categoria<select name="category"><option>Estoque</option><option>Serviços</option><option>Logística</option><option>Marketing</option></select></label><label>Valor<input name="amount" type="number" step=".01" required/></label><label>Vencimento<input name="date" type="date" required/></label><label className="check-line"><input name="recurring" type="checkbox"/> Repetir mensalmente</label></div><button className="button primary full">Registrar despesa</button></form>}
-      {editor==="withdrawal"&&<form onSubmit={e=>{e.preventDefault();const d=new FormData(e.currentTarget);setWithdrawals(x=>[{id:Date.now(),reason:String(d.get("reason")),amount:Number(d.get("amount")),time:"Agora"},...x]);setEditor(null)}}><span className="eyebrow">Controle de caixa</span><h2>Registrar sangria</h2><label>Motivo<input name="reason" required/></label><label>Valor<input name="amount" type="number" step=".01" required/></label><button className="button primary full">Confirmar sangria</button></form>}
+      {editor==="expense"&&<form onSubmit={saveExpense}><span className="eyebrow">Financeiro</span><h2>Lançar despesa</h2><div className="editor-fields"><label className="wide">Descrição<input name="description" required/></label><label>Categoria<select name="category"><option>Estoque</option><option>Serviços</option><option>Logística</option><option>Marketing</option></select></label><label>Valor<input name="amount" type="number" step=".01" required/></label><label>Vencimento<input name="date" type="date" required/></label><label className="check-line"><input name="recurring" type="checkbox"/> Repetir mensalmente</label></div><button className="button primary full">Registrar despesa</button></form>}
+      {editor==="withdrawal"&&<form onSubmit={saveWithdrawal}><span className="eyebrow">Controle de caixa</span><h2>Registrar sangria</h2><label>Motivo<input name="reason" required/></label><label>Valor<input name="amount" type="number" step=".01" required/></label><button className="button primary full">Confirmar sangria</button></form>}
       {editor==="message"&&<div><span className="eyebrow">Relacionamento</span><h2>Mensagem personalizada</h2><label>Público<select><option>Aniversariantes do mês</option><option>Todos que aceitaram promoções</option><option>Clientes de perfumes</option><option>Clientes inativos</option></select></label><div className="message-media">{messageImage?<div><img src={messageImage} alt="Imagem da campanha"/><button onClick={()=>setMessageImage("")}>Remover</button></div>:<label className="upload-button">Adicionar foto à campanha<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>chooseCampaignImage(e.target.files?.[0],"message")}/></label>}</div><label>Mensagem<textarea className="message-box" value={message} onChange={e=>setMessage(e.target.value)}/></label><div className="message-preview">{messageImage&&<img src={messageImage} alt=""/>}<small>Prévia para Mariana</small><p>{message.replace("{nome}","Mariana")}</p></div><button className="button primary full" onClick={()=>{alert("Campanha preparada. O envio oficial será ativado na integração do WhatsApp.");setEditor(null)}}>Preparar envios</button></div>}
     </section></div>}
   </div>

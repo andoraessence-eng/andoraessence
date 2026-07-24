@@ -10,7 +10,11 @@ Loja virtual premium para perfumes, chocolates, presentes, cosméticos e uma Lin
 - Checkout com retirada/entrega, taxa por localidade, Pix demonstrativo e resumo para WhatsApp.
 - Cadastro do Clube Andora, preferências e fidelidade.
 - Confirmação de idade para a área +18.
-- Painel administrativo demonstrativo: visão geral, produtos, pedidos, clientes, promoções, financeiro e relatórios.
+- Painel administrativo privado com Supabase Auth.
+- Cadastro de produtos e campanhas com upload de imagens no Supabase Storage.
+- PDV com Pix, débito, crédito, dinheiro, pagamento dividido, troco e pendências.
+- Baixa transacional de estoque e lucro por venda, dia e mês.
+- Despesas, recorrências, sangrias e histórico centralizados no banco.
 - SEO básico, acessibilidade de controles e layout para celular/computador.
 
 ## Rodar localmente
@@ -20,18 +24,17 @@ npm install
 npm run dev
 ```
 
-## Integrações finais
+## Ativar o Supabase
 
-1. Crie o projeto no Supabase e execute `supabase/schema.sql`.
+1. Execute `supabase/schema.sql` no SQL Editor do projeto.
 2. Copie `.env.example` para `.env.local` e preencha as chaves.
-3. Substitua os dados demonstrativos de `app/page.tsx` por consultas ao Supabase.
-4. Configure autenticação administrativa no Supabase Auth com MFA.
-5. Integre um provedor Pix que ofereça webhook; nunca considere o pagamento aprovado apenas pela tela do cliente.
-6. Suba o repositório Git e conecte-o à hospedagem escolhida.
+3. Em `/admin`, use “Primeiro acesso” com `andoraessence@gmail.com` e uma senha exclusiva para o painel.
+4. Confirme o e-mail e entre novamente.
+5. Ative MFA no Supabase Auth antes de liberar o painel para operação diária.
 
 ## Segurança antes da publicação
 
-- Criar políticas RLS específicas para cliente e administrador.
+- As políticas RLS e a função transacional do PDV são criadas pelo schema.
 - Manter a `SUPABASE_SERVICE_ROLE_KEY` somente no servidor.
 - Validar preço, estoque, cupom e taxa de entrega novamente no servidor.
 - Registrar webhooks Pix com verificação de assinatura e idempotência.

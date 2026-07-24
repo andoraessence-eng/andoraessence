@@ -51,4 +51,6 @@ body{font-family:"Avenir Next","Segoe UI",Montserrat,sans-serif;background:linea
 @media(max-width:1200px){.pos-layout{grid-template-columns:1fr}.pos-receipt{position:static}.pos-product-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.profit-summary{grid-template-columns:1fr}}
 @media(max-width:780px){.pos-heading{display:block}.pos-search{min-width:0;margin-top:16px}.pos-product-grid{grid-template-columns:1fr}.pos-catalog{padding:15px}.pos-receipt{border-radius:16px}.payment-row,.split-grid,.pending-fields{grid-template-columns:1fr}.profit-summary{grid-template-columns:1fr}.receipt-items{max-height:none}}
 
+.auth-message{padding:11px 13px;border-radius:10px;text-align:left!important;margin:12px 0!important}.auth-message.error{background:#fff0f1;color:#9b2843!important}.auth-message.success{background:#eaf6ee;color:#2e7048!important}.admin-login button:disabled,.admin-editor button:disabled,.pos-finish:disabled{opacity:.58;cursor:wait}
+
 @media(prefers-reduced-motion:reduce){.intro-orbit,.intro-welcome,.brand-intro video,.campaign-photo img{animation:none!important;transition:none!important}}
