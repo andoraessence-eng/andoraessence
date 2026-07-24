@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Product = {
   id: number;
@@ -18,7 +18,7 @@ type Product = {
 };
 
 type CartItem = Product & { quantity: number; giftWrap?: boolean };
-type Publication = { id: number; title: string; subtitle: string; theme: string; active: boolean; startsAt: string; endsAt: string };
+type Publication = { id: number; title: string; subtitle: string; theme: string; active: boolean; startsAt: string; endsAt: string; image?: string };
 
 const WHATSAPP = "5598984447708";
 
@@ -69,6 +69,8 @@ function Icon({ name, size = 20 }: { name: string; size?: number }) {
 }
 
 export default function Home() {
+  const introVideoRef = useRef<HTMLVideoElement>(null);
+  const [introMode, setIntroMode] = useState<"checking" | "welcome" | "playing" | "hidden">("checking");
   const [products, setProducts] = useState<Product[]>(initialProducts);
   const [publications, setPublications] = useState<Publication[]>([
     { id: 1, title: "Mês dos Pais Andora", subtitle: "Perfumes marcantes e kits preparados para surpreender.", theme: "Dia dos Pais", active: true, startsAt: "2026-07-20", endsAt: "2026-08-09" },
@@ -94,6 +96,9 @@ export default function Home() {
   const [adminTab, setAdminTab] = useState("Visão geral");
 
   useEffect(() => {
+    const isAdmin = window.location.pathname.startsWith("/admin");
+    const introSeen = localStorage.getItem("andora-intro-seen-v1") === "true";
+    setIntroMode(isAdmin || introSeen ? "hidden" : "welcome");
     const saved = localStorage.getItem("andora-cart");
     if (saved) setCart(JSON.parse(saved));
     const savedProducts = localStorage.getItem("andora-products");
@@ -172,15 +177,51 @@ export default function Home() {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  function startIntro() {
+    localStorage.setItem("andora-intro-seen-v1", "true");
+    setIntroMode("playing");
+    const video = introVideoRef.current;
+    if (video) {
+      video.currentTime = 0;
+      video.muted = false;
+      video.volume = 1;
+      void video.play().catch(() => setIntroMode("welcome"));
+    }
+  }
+
+  function closeIntro() {
+    localStorage.setItem("andora-intro-seen-v1", "true");
+    introVideoRef.current?.pause();
+    setIntroMode("hidden");
+  }
+
   const pixCode = `00020126360014BR.GOV.BCB.PIX0114+5598984447708520400005303986540${total.toFixed(2)}5802BR5922ANDORA ESSENCE6009PEDRO ROSARIO62070503***6304`;
 
   return (
     <main>
+      {(introMode === "welcome" || introMode === "playing") && <section className={`brand-intro ${introMode === "playing" ? "is-playing" : ""}`} aria-label="Apresentação Andora Essence">
+        <video ref={introVideoRef} src="/assets/andora-intro.mp4" playsInline preload="auto" onEnded={closeIntro} />
+        <div className="intro-veil" />
+        <div className="intro-orbit orbit-one" />
+        <div className="intro-orbit orbit-two" />
+        <div className="intro-welcome">
+          <span>Uma experiência Andora</span>
+          <img src="/assets/andora-logo-light.png" alt="Andora Essence — Segredo da Pele" />
+          <p>Perfumes, presentes e sensações escolhidas para marcar.</p>
+          <button className="intro-enter" onClick={startIntro}><span>Conhecer a essência</span><Icon name="arrow" /></button>
+          <button className="intro-skip" onClick={closeIntro}>Entrar sem apresentação</button>
+        </div>
+        <div className="intro-playing-bar">
+          <img src="/assets/andora-logo-light.png" alt="" />
+          <span>Apresentação da marca • áudio ativado</span>
+        </div>
+        <button className="intro-close" onClick={closeIntro} aria-label="Pular apresentação">Pular <Icon name="arrow" size={16} /></button>
+      </section>}
       <div className="topbar">Entrega em Pedro do Rosário • Primeira compra: use <strong>BEMVINDA10</strong></div>
       <header className="header">
         <button className="icon-button mobile-only" onClick={() => setMenuOpen(true)} aria-label="Abrir menu"><Icon name="menu" /></button>
         <button className="brand" onClick={() => scrollTo("inicio")} aria-label="Andora Essence - início">
-          <img src="/assets/andora-logo.png" alt="Andora Essence" />
+          <img src="/assets/andora-logo-dark.png" alt="Andora Essence" />
         </button>
         <nav>
           <button onClick={() => scrollTo("inicio")}>Início</button>
@@ -230,9 +271,9 @@ export default function Home() {
         <div><Icon name="whatsapp" /><span><strong>Atendimento humano</strong>Escolha pelo WhatsApp</span></div>
       </section>
 
-      {publications.filter((item) => item.active).map((item) => <section className="campaign-banner" key={item.id}>
-        <div><span>{item.theme}</span><h2>{item.title}</h2><p>{item.subtitle}</p></div>
-        <button className="button primary" onClick={() => setCatalogOpen(true)}>Ver seleção <Icon name="arrow"/></button>
+      {publications.filter((item) => item.active).map((item) => <section className={`campaign-banner ${item.image ? "with-image" : ""}`} key={item.id}>
+        <div className="campaign-copy"><span>{item.theme}</span><h2>{item.title}</h2><p>{item.subtitle}</p><button className="button primary" onClick={() => setCatalogOpen(true)}>Ver seleção <Icon name="arrow"/></button></div>
+        {item.image && <div className="campaign-photo"><img src={item.image} alt={item.title}/><i /></div>}
       </section>)}
 
       <section className="section collection" id="colecao">
@@ -319,7 +360,7 @@ export default function Home() {
       </section>
 
       <footer>
-        <div className="footer-brand"><img src="/assets/andora-logo.png" alt="Andora Essence"/><p>Segredo da Pele</p><span>Perfumes, chocolates e presentes especiais em Pedro do Rosário - MA.</span></div>
+        <div className="footer-brand"><img src="/assets/andora-logo-light.png" alt="Andora Essence"/><p>Segredo da Pele</p><span>Perfumes, chocolates e presentes especiais em Pedro do Rosário - MA.</span></div>
         <div><h4>Explore</h4><button onClick={() => setCatalogOpen(true)}>Catálogo</button><button onClick={() => scrollTo("presentes")}>Presentes</button><button onClick={openAdult}>Produtos especiais +18</button><button onClick={() => scrollTo("sobre")}>Sobre a loja</button></div>
         <div><h4>Atendimento</h4><a href={`https://wa.me/${WHATSAPP}`}>WhatsApp (98) 98444-7708</a><span>Pedro do Rosário - MA</span><span>Seg a sáb • 8h às 18h</span></div>
         <div><h4>Informações</h4><button onClick={() => setToast("Política de privacidade preparada para personalização.")}>Privacidade</button><button onClick={() => setToast("Política de trocas preparada para personalização.")}>Trocas e devoluções</button><button onClick={() => setToast("Termos de uso preparados para personalização.")}>Termos de uso</button><a href="https://www.instagram.com/" target="_blank" rel="noreferrer">Instagram</a></div>
@@ -330,7 +371,7 @@ export default function Home() {
 
       {menuOpen && <div className="mobile-menu overlay">
         <button className="close" onClick={() => setMenuOpen(false)}><Icon name="x"/></button>
-        <img src="/assets/andora-logo.png" alt="Andora Essence" />
+        <img src="/assets/andora-logo-light.png" alt="Andora Essence" />
         {["Início", "Loja", "Presentes", "Produtos especiais", "Nossa essência"].map((item) => <button key={item} onClick={() => item === "Loja" ? (setMenuOpen(false), setCatalogOpen(true)) : item === "Produtos especiais" ? (setMenuOpen(false), openAdult()) : scrollTo(item === "Início" ? "inicio" : item === "Presentes" ? "presentes" : "sobre")}>{item}</button>)}
       </div>}
 
@@ -442,23 +483,26 @@ function AdminPanel({ tab, setTab, close, products, setProducts, publications, s
   const [editingProduct,setEditingProduct] = useState<Product|null>(null);
   const [editingPublication,setEditingPublication] = useState<Publication|null>(null);
   const [productImage,setProductImage] = useState("");
+  const [publicationImage,setPublicationImage] = useState("");
+  const [messageImage,setMessageImage] = useState("");
   const [expenses,setExpenses] = useState([{id:1,description:"Reposição perfumes",category:"Estoque",amount:2450,date:"21/07/2026",recurring:false},{id:2,description:"Internet da loja",category:"Serviços",amount:119.9,date:"10/07/2026",recurring:true}]);
   const [withdrawals,setWithdrawals] = useState([{id:1,reason:"Pagamento de entrega",amount:120,time:"18/07 • 17:42"}]);
   const [message,setMessage] = useState("Olá, {nome}! A Andora Essence preparou uma seleção especial para você. Posso te mostrar?");
-  if(!authenticated) return <div className="modal-backdrop admin-login"><section><button className="close" onClick={close}><Icon name="x"/></button><img src="/assets/andora-logo.png" alt="Andora Essence"/><span className="eyebrow">Área privada</span><h2>Gestão Andora</h2><p>O painel administrativo não é exibido na loja pública. Ambiente demonstrativo: use qualquer senha com 6 ou mais caracteres.</p><form onSubmit={e=>{e.preventDefault();setAuthenticated(true)}}><label>E-mail<input type="email" defaultValue="admin@andoraessence.com.br" required/></label><label>Senha<input type="password" minLength={6} required/></label><button className="button primary full">Entrar com segurança</button></form></section></div>;
+  if(!authenticated) return <div className="modal-backdrop admin-login"><section><button className="close" onClick={close}><Icon name="x"/></button><img src="/assets/andora-logo-dark.png" alt="Andora Essence"/><span className="eyebrow">Área privada</span><h2>Gestão Andora</h2><p>O painel administrativo não é exibido na loja pública. Ambiente demonstrativo: use qualquer senha com 6 ou mais caracteres.</p><form onSubmit={e=>{e.preventDefault();setAuthenticated(true)}}><label>E-mail<input type="email" defaultValue="admin@andoraessence.com.br" required/></label><label>Senha<input type="password" minLength={6} required/></label><button className="button primary full">Entrar com segurança</button></form></section></div>;
   function saveProduct(e:React.FormEvent<HTMLFormElement>){e.preventDefault();const d=new FormData(e.currentTarget);const p:Product={id:editingProduct?.id??Date.now(),name:String(d.get("name")),category:String(d.get("category")),brand:String(d.get("brand")),type:String(d.get("type")),price:Number(d.get("price")),oldPrice:Number(d.get("oldPrice"))||undefined,stock:Number(d.get("stock")),image:productImage||String(d.get("image"))||editingProduct?.image||initialProducts[0].image,badge:String(d.get("badge"))||undefined,adult:d.get("adult")==="on",description:String(d.get("description"))};setProducts(list=>editingProduct?list.map(x=>x.id===p.id?p:x):[p,...list]);setEditor(null);setProductImage("")}
-  function savePublication(e:React.FormEvent<HTMLFormElement>){e.preventDefault();const d=new FormData(e.currentTarget);const p:Publication={id:editingPublication?.id??Date.now(),title:String(d.get("title")),subtitle:String(d.get("subtitle")),theme:String(d.get("theme")),active:d.get("active")==="on",startsAt:String(d.get("startsAt")),endsAt:String(d.get("endsAt"))};setPublications(list=>editingPublication?list.map(x=>x.id===p.id?p:x):[p,...list]);setEditor(null)}
-  const openProduct=(p:Product|null)=>{setEditingProduct(p);setProductImage(p?.image??"");setEditor("product")}; const openPublication=(p:Publication|null)=>{setEditingPublication(p);setEditor("publication")};
+  function savePublication(e:React.FormEvent<HTMLFormElement>){e.preventDefault();const d=new FormData(e.currentTarget);const p:Publication={id:editingPublication?.id??Date.now(),title:String(d.get("title")),subtitle:String(d.get("subtitle")),theme:String(d.get("theme")),active:d.get("active")==="on",startsAt:String(d.get("startsAt")),endsAt:String(d.get("endsAt")),image:publicationImage||undefined};setPublications(list=>editingPublication?list.map(x=>x.id===p.id?p:x):[p,...list]);setEditor(null);setPublicationImage("")}
+  const openProduct=(p:Product|null)=>{setEditingProduct(p);setProductImage(p?.image??"");setEditor("product")}; const openPublication=(p:Publication|null)=>{setEditingPublication(p);setPublicationImage(p?.image??"");setEditor("publication")};
   function chooseProductImage(file?:File){if(!file)return;if(file.size>2_500_000){alert("Escolha uma imagem de até 2,5 MB.");return}const reader=new FileReader();reader.onload=()=>setProductImage(String(reader.result));reader.readAsDataURL(file)}
+  function chooseCampaignImage(file:File|undefined, target:"publication"|"message"){if(!file)return;if(file.size>4_000_000){alert("Escolha uma imagem de até 4 MB.");return}const reader=new FileReader();reader.onload=()=>target==="publication"?setPublicationImage(String(reader.result)):setMessageImage(String(reader.result));reader.readAsDataURL(file)}
   return <div className="admin-shell">
-    <aside><div className="admin-logo">A<span>Andora</span></div><nav>{tabs.map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}</button>)}</nav><button onClick={close}>← Sair do painel</button></aside>
+    <aside><img className="admin-brand-image" src="/assets/andora-logo-light.png" alt="Andora Essence"/><nav>{tabs.map(x=><button key={x} className={tab===x?"active":""} onClick={()=>setTab(x)}>{x}</button>)}</nav><button onClick={close}>← Sair do painel</button></aside>
     <section className="admin-main"><header><div><span>Painel administrativo • ambiente privado</span><h1>{tab}</h1></div><div className="admin-user"><span>AE</span><div><strong>Andora Essence</strong><small>Administrador</small></div></div></header>
-      {tab==="Visão geral"&&<><div className="metric-grid">{[["Faturamento do mês","R$ 18.460,90","+18%"],["Lucro líquido","R$ 11.972,40","64,9%"],["Caixa disponível","R$ 3.782,60","Atualizado agora"],["Estoque baixo",`${products.filter(p=>p.stock<6).length} itens`,"Repor agora"]].map(m=><article key={m[0]}><span>{m[0]}</span><strong>{m[1]}</strong><small>{m[2]}</small></article>)}</div><div className="admin-grid"><article className="chart-card"><div className="card-title"><h3>Vendas nos últimos 7 dias</h3><button>Este mês ▾</button></div><div className="bar-chart">{[45,70,58,92,65,80,100].map((v,i)=><div key={i}><i style={{height:`${v}%`}}/><span>{["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"][i]}</span></div>)}</div></article><article className="recent-card"><div className="card-title"><h3>Ações rápidas</h3></div><div className="quick-actions"><button onClick={()=>openProduct(null)}>+ Cadastrar produto</button><button onClick={()=>openPublication(null)}>+ Criar publicação</button><button onClick={()=>setEditor("expense")}>+ Lançar despesa</button><button onClick={()=>setEditor("message")}>Enviar campanha</button></div></article></div></>}
+      {tab==="Visão geral"&&<><div className="metric-grid">{[["Faturamento do mês","R$ 18.460,90","+18%"],["Lucro líquido","R$ 11.972,40","64,9%"],["Caixa disponível","R$ 3.782,60","Atualizado agora"],["Estoque baixo",`${products.filter(p=>p.stock<6).length} itens`,"Repor agora"]].map(m=><article key={m[0]}><span>{m[0]}</span><strong>{m[1]}</strong><small>{m[2]}</small></article>)}</div><div className="admin-grid"><article className="chart-card"><div className="card-title"><h3>Vendas nos últimos 7 dias</h3><button>Este mês ▾</button></div><div className="bar-chart">{[45,70,58,92,65,80,100].map((v,i)=><div key={i}><i style={{height:`${v}%`}}/><span>{["Seg","Ter","Qua","Qui","Sex","Sáb","Dom"][i]}</span></div>)}</div></article><article className="recent-card"><div className="card-title"><h3>Ações rápidas</h3></div><div className="quick-actions"><button onClick={()=>openProduct(null)}>+ Cadastrar produto</button><button onClick={()=>openPublication(null)}>+ Criar campanha visual</button><button onClick={()=>setEditor("expense")}>+ Lançar despesa</button><button onClick={()=>setEditor("message")}>Campanha no WhatsApp</button></div></article></div></>}
       {tab==="Produtos"&&<article className="table-card"><div className="card-title"><h3>Produtos e estoque</h3><button onClick={()=>openProduct(null)}>+ Novo produto</button></div><div className="table-wrap"><table><thead><tr><th>Produto</th><th>Categoria</th><th>Preço</th><th>Estoque</th><th>Ações</th></tr></thead><tbody>{products.map(p=><tr key={p.id}><td><strong>{p.name}</strong><small className="table-note">{p.brand}</small></td><td>{p.category}</td><td>{money(p.price)}</td><td>{p.stock} un.</td><td><div className="row-actions"><button onClick={()=>openProduct(p)}>Editar</button><button onClick={()=>confirm(`Excluir ${p.name}?`)&&setProducts(x=>x.filter(i=>i.id!==p.id))}>Excluir</button></div></td></tr>)}</tbody></table></div></article>}
       {tab==="Pedidos"&&<AdminTable title="Gestão de pedidos" action="Exportar" heads={["Pedido","Cliente","Total","Pagamento","Status"]} rows={[["AE-2048","Mariana S.","R$ 189,90","Pix","Pago"],["AE-2047","Joana R.","R$ 79,90","Pix","Em separação"],["AE-2046","Carlos M.","R$ 349,90","Pix","Saiu para entrega"]]}/>}
       {tab==="Clientes"&&<><div className="page-actions"><button className="button primary" onClick={()=>setEditor("message")}>Mensagem personalizada</button></div><AdminTable title="Clientes e aniversariantes" action="Exportar contatos" heads={["Cliente","WhatsApp","Compras","Preferência","Aniversário"]} rows={[["Mariana Silva","(98) 9 8844-1122","8","Perfumes","12/07"],["Joana Rocha","(98) 9 9123-7788","5","Presentes","23/07"],["Ana Luz","(98) 9 8455-2211","3","Chocolates","30/07"]]}/></>}
       {tab==="Promoções"&&<AdminTable title="Promoções, cupons e kits" action="+ Criar promoção" heads={["Cupom","Benefício","Produtos","Validade","Status"]} rows={[["BEMVINDA10","10% primeira compra","Todos","31/12/2026","Ativo"],["ANDORA15","15% fidelidade","Selecionados","Sem validade","Ativo"],["PRESENTE","Embalagem grátis","Kits","31/07/2026","Ativo"]]}/>}
-      {tab==="Publicações"&&<article className="table-card"><div className="card-title"><div><h3>Conteúdo da loja pública</h3><p className="muted-copy">Banners sazonais editáveis sem mexer no código.</p></div><button onClick={()=>openPublication(null)}>+ Nova publicação</button></div><div className="publication-grid">{publications.map(p=><article key={p.id}><span className="status">{p.active?"Publicada":"Rascunho"}</span><small>{p.theme}</small><h3>{p.title}</h3><p>{p.subtitle}</p><div className="row-actions"><button onClick={()=>setPublications(x=>x.map(i=>i.id===p.id?{...i,active:!i.active}:i))}>{p.active?"Ocultar":"Publicar"}</button><button onClick={()=>openPublication(p)}>Editar</button><button onClick={()=>confirm("Excluir publicação?")&&setPublications(x=>x.filter(i=>i.id!==p.id))}>Excluir</button></div></article>)}</div></article>}
+      {tab==="Publicações"&&<article className="table-card"><div className="card-title"><div><h3>Campanhas da loja pública</h3><p className="muted-copy">Crie banners sazonais com foto, texto e período de exibição.</p></div><button onClick={()=>openPublication(null)}>+ Nova campanha</button></div><div className="publication-grid">{publications.map(p=><article key={p.id}>{p.image&&<div className="publication-thumb"><img src={p.image} alt=""/></div>}<span className="status">{p.active?"Publicada":"Rascunho"}</span><small>{p.theme}</small><h3>{p.title}</h3><p>{p.subtitle}</p><div className="row-actions"><button onClick={()=>setPublications(x=>x.map(i=>i.id===p.id?{...i,active:!i.active}:i))}>{p.active?"Ocultar":"Publicar"}</button><button onClick={()=>openPublication(p)}>Editar</button><button onClick={()=>confirm("Excluir publicação?")&&setPublications(x=>x.filter(i=>i.id!==p.id))}>Excluir</button></div></article>)}</div></article>}
       {tab==="Campanhas"&&<div className="campaign-admin"><article><span>WhatsApp marketing</span><h2>Fale com cada cliente do jeito certo.</h2><p>Segmente aniversariantes, preferências, clientes inativos ou histórico de compras. Use <b>{"{nome}"}</b> para personalizar.</p><button className="button primary" onClick={()=>setEditor("message")}>Criar mensagem</button></article><article className="campaign-list"><h3>Segmentos prontos</h3>{["Aniversariantes do mês • 12 clientes","Clientes de perfumes • 84 clientes","Sem comprar há 60 dias • 31 clientes","Clube fidelidade • 46 clientes"].map(x=><button key={x} onClick={()=>setEditor("message")}>{x}<Icon name="arrow"/></button>)}</article></div>}
       {tab==="Caixa e sangrias"&&<><div className="metric-grid">{[["Abertura","R$ 500,00","08:02"],["Entradas","R$ 4.386,50","38 vendas"],["Sangrias","R$ 620,00",`${withdrawals.length} registros`],["Saldo previsto","R$ 4.266,50","Caixa aberto"]].map(m=><article key={m[0]}><span>{m[0]}</span><strong>{m[1]}</strong><small>{m[2]}</small></article>)}</div><article className="table-card"><div className="card-title"><h3>Movimentações do caixa</h3><button onClick={()=>setEditor("withdrawal")}>+ Registrar sangria</button></div><div className="table-wrap"><table><thead><tr><th>Motivo</th><th>Horário</th><th>Responsável</th><th>Valor</th></tr></thead><tbody>{withdrawals.map(w=><tr key={w.id}><td>{w.reason}</td><td>{w.time}</td><td>Administrador</td><td>{money(w.amount)}</td></tr>)}</tbody></table></div></article></>}
       {tab==="Despesas"&&<><div className="page-actions"><button className="button primary" onClick={()=>setEditor("expense")}>+ Nova despesa</button></div><AdminTable title="Despesas fixas e variáveis" action="Exportar" heads={["Descrição","Categoria","Vencimento","Tipo","Valor"]} rows={expenses.map(x=>[x.description,x.category,x.date,x.recurring?"Recorrente":"Única",money(x.amount)])}/></>}
@@ -466,10 +510,10 @@ function AdminPanel({ tab, setTab, close, products, setProducts, publications, s
     </section>
     {editor&&<div className="admin-editor-backdrop" onMouseDown={()=>setEditor(null)}><section className="admin-editor" onMouseDown={e=>e.stopPropagation()}><button className="close" onClick={()=>setEditor(null)}><Icon name="x"/></button>
       {editor==="product"&&<form onSubmit={saveProduct}><span className="eyebrow">Catálogo inteligente</span><h2>{editingProduct?"Editar produto":"Cadastrar produto"}</h2><div className="product-media-editor"><div className="product-photo-preview">{productImage?<img src={productImage} alt="Prévia do produto"/>:<><Icon name="plus" size={30}/><strong>Foto do produto</strong><span>JPG, PNG ou WebP</span></>}</div><div><label className="upload-button">Escolher foto do aparelho<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>chooseProductImage(e.target.files?.[0])}/></label><p>A imagem aparecerá automaticamente na vitrine. Para melhor resultado, use foto vertical e fundo limpo.</p><label>Ou cole uma URL<input name="image" value={productImage.startsWith("data:")?"":productImage} onChange={e=>setProductImage(e.target.value)} placeholder="https://..."/></label></div></div><div className="editor-fields"><label>Nome do produto<input name="name" required defaultValue={editingProduct?.name}/></label><label>Categoria<select name="category" defaultValue={editingProduct?.category}>{categories.slice(1).map(c=><option key={c}>{c}</option>)}</select></label><label>Marca<input name="brand" defaultValue={editingProduct?.brand}/></label><label>Tipo / concentração<input name="type" defaultValue={editingProduct?.type}/></label><label>Preço de venda<input name="price" type="number" step=".01" required defaultValue={editingProduct?.price}/></label><label>Preço anterior / promoção<input name="oldPrice" type="number" step=".01" defaultValue={editingProduct?.oldPrice}/></label><label>Estoque<input name="stock" type="number" required defaultValue={editingProduct?.stock}/></label><label>Selo da vitrine<input name="badge" defaultValue={editingProduct?.badge} placeholder="Lançamento, promoção..."/></label><label className="wide">Descrição<textarea name="description" required defaultValue={editingProduct?.description}/></label><label className="wide check-line"><input type="checkbox" name="adult" defaultChecked={editingProduct?.adult}/> Produto reservado para a área +18</label></div><button className="button primary full">Salvar e publicar na vitrine</button></form>}
-      {editor==="publication"&&<form onSubmit={savePublication}><span className="eyebrow">Site público</span><h2>{editingPublication?"Editar publicação":"Nova publicação"}</h2><div className="editor-fields"><label>Tema<select name="theme" defaultValue={editingPublication?.theme}><option>Dia das Mães</option><option>Dia dos Pais</option><option>Dia dos Namorados</option><option>Natal</option><option>Campanha personalizada</option></select></label><label>Título<input name="title" required defaultValue={editingPublication?.title}/></label><label className="wide">Texto<textarea name="subtitle" required defaultValue={editingPublication?.subtitle}/></label><label>Início<input type="date" name="startsAt" defaultValue={editingPublication?.startsAt}/></label><label>Fim<input type="date" name="endsAt" defaultValue={editingPublication?.endsAt}/></label><label className="wide check-line"><input type="checkbox" name="active" defaultChecked={editingPublication?.active??true}/> Publicar agora</label></div><button className="button primary full">Salvar publicação</button></form>}
+      {editor==="publication"&&<form onSubmit={savePublication}><span className="eyebrow">Campanha visual</span><h2>{editingPublication?"Editar campanha":"Nova campanha"}</h2><div className="campaign-image-editor">{publicationImage?<div className="campaign-image-preview"><img src={publicationImage} alt="Prévia da campanha"/><button type="button" onClick={()=>setPublicationImage("")}>Remover foto</button></div>:<div className="campaign-upload-empty"><Icon name="plus" size={28}/><strong>Foto da campanha</strong><span>Opcional • JPG, PNG ou WebP</span></div>}<div><label className="upload-button">Escolher foto do celular ou computador<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>chooseCampaignImage(e.target.files?.[0],"publication")}/></label><p>Use uma foto horizontal ou vertical com boa luz. O site ajusta o enquadramento sem deixar o banner confuso.</p></div></div><div className="editor-fields"><label>Tema<select name="theme" defaultValue={editingPublication?.theme}><option>Dia das Mães</option><option>Dia dos Pais</option><option>Dia dos Namorados</option><option>Natal</option><option>Campanha personalizada</option></select></label><label>Título<input name="title" required defaultValue={editingPublication?.title}/></label><label className="wide">Texto<textarea name="subtitle" required defaultValue={editingPublication?.subtitle}/></label><label>Início<input type="date" name="startsAt" defaultValue={editingPublication?.startsAt}/></label><label>Fim<input type="date" name="endsAt" defaultValue={editingPublication?.endsAt}/></label><label className="wide check-line"><input type="checkbox" name="active" defaultChecked={editingPublication?.active??true}/> Publicar agora</label></div><button className="button primary full">Salvar campanha</button></form>}
       {editor==="expense"&&<form onSubmit={e=>{e.preventDefault();const d=new FormData(e.currentTarget);setExpenses(x=>[{id:Date.now(),description:String(d.get("description")),category:String(d.get("category")),amount:Number(d.get("amount")),date:String(d.get("date")),recurring:d.get("recurring")==="on"},...x]);setEditor(null)}}><span className="eyebrow">Financeiro</span><h2>Lançar despesa</h2><div className="editor-fields"><label className="wide">Descrição<input name="description" required/></label><label>Categoria<select name="category"><option>Estoque</option><option>Serviços</option><option>Logística</option><option>Marketing</option></select></label><label>Valor<input name="amount" type="number" step=".01" required/></label><label>Vencimento<input name="date" type="date" required/></label><label className="check-line"><input name="recurring" type="checkbox"/> Repetir mensalmente</label></div><button className="button primary full">Registrar despesa</button></form>}
       {editor==="withdrawal"&&<form onSubmit={e=>{e.preventDefault();const d=new FormData(e.currentTarget);setWithdrawals(x=>[{id:Date.now(),reason:String(d.get("reason")),amount:Number(d.get("amount")),time:"Agora"},...x]);setEditor(null)}}><span className="eyebrow">Controle de caixa</span><h2>Registrar sangria</h2><label>Motivo<input name="reason" required/></label><label>Valor<input name="amount" type="number" step=".01" required/></label><button className="button primary full">Confirmar sangria</button></form>}
-      {editor==="message"&&<div><span className="eyebrow">Relacionamento</span><h2>Mensagem personalizada</h2><label>Público<select><option>Aniversariantes do mês</option><option>Todos que aceitaram promoções</option><option>Clientes de perfumes</option><option>Clientes inativos</option></select></label><label>Mensagem<textarea className="message-box" value={message} onChange={e=>setMessage(e.target.value)}/></label><div className="message-preview"><small>Prévia para Mariana</small><p>{message.replace("{nome}","Mariana")}</p></div><button className="button primary full" onClick={()=>{alert("Campanha preparada. O envio oficial será ativado na integração do WhatsApp.");setEditor(null)}}>Preparar envios</button></div>}
+      {editor==="message"&&<div><span className="eyebrow">Relacionamento</span><h2>Mensagem personalizada</h2><label>Público<select><option>Aniversariantes do mês</option><option>Todos que aceitaram promoções</option><option>Clientes de perfumes</option><option>Clientes inativos</option></select></label><div className="message-media">{messageImage?<div><img src={messageImage} alt="Imagem da campanha"/><button onClick={()=>setMessageImage("")}>Remover</button></div>:<label className="upload-button">Adicionar foto à campanha<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e=>chooseCampaignImage(e.target.files?.[0],"message")}/></label>}</div><label>Mensagem<textarea className="message-box" value={message} onChange={e=>setMessage(e.target.value)}/></label><div className="message-preview">{messageImage&&<img src={messageImage} alt=""/>}<small>Prévia para Mariana</small><p>{message.replace("{nome}","Mariana")}</p></div><button className="button primary full" onClick={()=>{alert("Campanha preparada. O envio oficial será ativado na integração do WhatsApp.");setEditor(null)}}>Preparar envios</button></div>}
     </section></div>}
   </div>
 }
