@@ -60,6 +60,31 @@ export type Withdrawal = {
   time: string;
 };
 
+export type Customer = {
+  id: string;
+  name: string;
+  phone: string;
+  address: string;
+  neighborhood: string;
+  birthday?: string;
+  preferences: string[];
+  acceptsWhatsapp: boolean;
+  loyaltyPurchases: number;
+  createdAt: string;
+};
+
+export type StoreOrder = {
+  id: string;
+  number: string;
+  customerName: string;
+  customerPhone: string;
+  total: number;
+  paymentStatus: string;
+  status: string;
+  createdAt: string;
+  items: { name: string; quantity: number; unitPrice: number }[];
+};
+
 function slugify(value: string) {
   return value
     .normalize("NFD")
@@ -169,6 +194,26 @@ export async function hasAdminSession() {
 
 export async function signOutAdmin() {
   await getSupabase()?.auth.signOut();
+}
+
+export async function changeAdminPassword(
+  currentPassword: string,
+  newPassword: string,
+) {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("Supabase ainda não está configurado.");
+  const { data: userData, error: userError } = await supabase.auth.getUser();
+  const email = userData.user?.email;
+  if (userError || !email) {
+    throw new Error("Sessão administrativa inválida. Entre novamente.");
+  }
+  const { error: reauthError } = await supabase.auth.signInWithPassword({
+    email,
+    password: currentPassword,
+  });
+  if (reauthError) throw new Error("A senha atual está incorreta.");
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw error;
 }
 
 async function resolveCategory(name: string, adultOnly: boolean) {
@@ -294,7 +339,7 @@ export async function deletePublication(id: string) {
 export async function loadAdminData() {
   const supabase = getSupabase();
   if (!supabase) return null;
-  const [sales, expenses, withdrawals] = await Promise.all([
+  const [sales, expenses, withdrawals, customers, orders] = await Promise.all([
     supabase
       .from("sales")
       .select("*, sale_items(*), sale_payments(*)")
@@ -306,10 +351,20 @@ export async function loadAdminData() {
       .from("cash_withdrawals")
       .select("*")
       .order("created_at", { ascending: false }),
+    supabase
+      .from("customers")
+      .select("*")
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("orders")
+      .select("*, order_items(*)")
+      .order("created_at", { ascending: false }),
   ]);
   if (sales.error) throw sales.error;
   if (expenses.error) throw expenses.error;
   if (withdrawals.error) throw withdrawals.error;
+  if (customers.error) throw customers.error;
+  if (orders.error) throw orders.error;
   return {
     sales: (sales.data ?? []).map((row: Record<string, any>) => ({
       id: row.sale_number,
@@ -360,6 +415,33 @@ export async function loadAdminData() {
         }),
       }),
     ) as Withdrawal[],
+    customers: (customers.data ?? []).map((row: Record<string, any>) => ({
+      id: String(row.id),
+      name: row.name,
+      phone: row.phone,
+      address: row.address ?? "",
+      neighborhood: row.neighborhood ?? "",
+      birthday: row.birthday ?? undefined,
+      preferences: row.preferences ?? [],
+      acceptsWhatsapp: Boolean(row.accepts_whatsapp),
+      loyaltyPurchases: Number(row.loyalty_purchases ?? 0),
+      createdAt: row.created_at,
+    })) as Customer[],
+    orders: (orders.data ?? []).map((row: Record<string, any>) => ({
+      id: String(row.id),
+      number: row.order_number,
+      customerName: row.customer_name,
+      customerPhone: row.customer_phone,
+      total: Number(row.total),
+      paymentStatus: row.pix_txid ? "Pago/identificado" : "Aguardando",
+      status: row.status,
+      createdAt: row.created_at,
+      items: (row.order_items ?? []).map((item: Record<string, any>) => ({
+        name: item.product_name,
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unit_price),
+      })),
+    })) as StoreOrder[],
   };
 }
 
@@ -446,7 +528,7 @@ export async function createCustomer(input: {
 }) {
   const supabase = getSupabase();
   if (!supabase) throw new Error("Supabase indisponível.");
-  const { error } = await supabase.from("customers").upsert(
+  const { data, error } = await supabase.from("customers").upsert(
     {
       name: input.name,
       phone: input.phone,
@@ -456,8 +538,98 @@ export async function createCustomer(input: {
       accepts_whatsapp: input.acceptsWhatsapp,
     },
     { onConflict: "phone" },
-  );
+  ).select("*").single();
   if (error) throw error;
+  return {
+    id: String(data.id),
+    name: data.name,
+    phone: data.phone,
+    address: data.address ?? "",
+    neighborhood: data.neighborhood ?? "",
+    birthday: data.birthday ?? undefined,
+    preferences: data.preferences ?? [],
+    acceptsWhatsapp: Boolean(data.accepts_whatsapp),
+    loyaltyPurchases: Number(data.loyalty_purchases ?? 0),
+    createdAt: data.created_at,
+  } satisfies Customer;
+}
+
+export async function saveCustomer(input: {
+  id?: string;
+  name: string;
+  phone: string;
+  address: string;
+  neighborhood?: string;
+  birthday?: string;
+  preference?: string;
+  acceptsWhatsapp: boolean;
+}) {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("Supabase indisponível.");
+  const record = {
+    name: input.name.trim(),
+    phone: input.phone.trim(),
+    address: input.address.trim(),
+    neighborhood: input.neighborhood?.trim() || null,
+    birthday: input.birthday || null,
+    preferences: input.preference ? [input.preference] : [],
+    accepts_whatsapp: input.acceptsWhatsapp,
+  };
+  const query = input.id
+    ? supabase.from("customers").update(record).eq("id", input.id)
+    : supabase.from("customers").insert(record);
+  const { data, error } = await query.select("*").single();
+  if (error) throw error;
+  return {
+    id: String(data.id),
+    name: data.name,
+    phone: data.phone,
+    address: data.address ?? "",
+    neighborhood: data.neighborhood ?? "",
+    birthday: data.birthday ?? undefined,
+    preferences: data.preferences ?? [],
+    acceptsWhatsapp: Boolean(data.accepts_whatsapp),
+    loyaltyPurchases: Number(data.loyalty_purchases ?? 0),
+    createdAt: data.created_at,
+  } satisfies Customer;
+}
+
+export async function createStoreOrder(input: {
+  customer: {
+    name: string;
+    phone: string;
+    address: string;
+    neighborhood: string;
+    birthday?: string;
+    notes?: string;
+  };
+  giftMessage?: string;
+  items: {
+    productId: string;
+    quantity: number;
+    giftWrap: boolean;
+  }[];
+}) {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("Supabase indisponível.");
+  const { data, error } = await supabase.rpc("create_store_order", {
+    payload: {
+      customer_name: input.customer.name,
+      customer_phone: input.customer.phone,
+      address: input.customer.address,
+      neighborhood: input.customer.neighborhood,
+      birthday: input.customer.birthday || null,
+      notes: input.customer.notes || null,
+      gift_message: input.giftMessage || null,
+      items: input.items.map((item) => ({
+        product_id: item.productId,
+        quantity: item.quantity,
+        gift_wrap: item.giftWrap,
+      })),
+    },
+  });
+  if (error) throw error;
+  return data as { id: string; order_number: string; total: number };
 }
 
 export { isSupabaseConfigured };

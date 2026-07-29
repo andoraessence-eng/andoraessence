@@ -76,6 +76,10 @@ create table if not exists orders (
   updated_at timestamptz not null default now()
 );
 
+alter table orders
+  add column if not exists mercadopago_preference_id text,
+  add column if not exists mercadopago_payment_id text;
+
 create table if not exists order_items (
   id uuid primary key default gen_random_uuid(),
   order_id uuid not null references orders(id) on delete cascade,
@@ -334,6 +338,177 @@ $$;
 revoke all on function public.complete_pos_sale(jsonb) from public;
 grant execute on function public.complete_pos_sale(jsonb) to authenticated;
 
+create or replace function public.create_store_order(payload jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  new_order_id uuid;
+  customer_record_id uuid;
+  order_number_value text;
+  item jsonb;
+  product_record products%rowtype;
+  item_quantity integer;
+  item_gift_wrap boolean;
+  subtotal_value numeric(12,2) := 0;
+  delivery_fee_value numeric(12,2) := 0;
+  total_value numeric(12,2) := 0;
+  customer_name_value text := trim(payload ->> 'customer_name');
+  customer_phone_value text := regexp_replace(payload ->> 'customer_phone', '[^0-9+]', '', 'g');
+  neighborhood_value text := trim(payload ->> 'neighborhood');
+begin
+  if length(customer_name_value) < 2 or length(customer_name_value) > 120 then
+    raise exception 'Informe um nome válido';
+  end if;
+  if length(customer_phone_value) < 10 or length(customer_phone_value) > 16 then
+    raise exception 'Informe um WhatsApp válido';
+  end if;
+  if jsonb_typeof(payload -> 'items') <> 'array'
+     or jsonb_array_length(payload -> 'items') = 0 then
+    raise exception 'O pedido precisa conter produtos';
+  end if;
+  if jsonb_array_length(payload -> 'items') > 50 then
+    raise exception 'Quantidade de itens acima do limite';
+  end if;
+
+  for item in select * from jsonb_array_elements(payload -> 'items')
+  loop
+    item_quantity := greatest(1, least(99, (item ->> 'quantity')::integer));
+    item_gift_wrap := coalesce((item ->> 'gift_wrap')::boolean, false);
+
+    select * into product_record
+    from products
+    where id = (item ->> 'product_id')::uuid
+      and is_active = true
+    for share;
+
+    if product_record.id is null then
+      raise exception 'Produto indisponível';
+    end if;
+    if product_record.stock < item_quantity then
+      raise exception 'Estoque insuficiente para %', product_record.name;
+    end if;
+
+    subtotal_value := subtotal_value
+      + (product_record.price * item_quantity)
+      + (case when item_gift_wrap then 9.90 * item_quantity else 0 end);
+  end loop;
+
+  select coalesce(fee, 0) into delivery_fee_value
+  from delivery_zones
+  where name = neighborhood_value and active = true;
+  delivery_fee_value := coalesce(delivery_fee_value, 0);
+  total_value := subtotal_value + delivery_fee_value;
+  order_number_value := 'AE-' || to_char(clock_timestamp(), 'YYMMDD-HH24MISS')
+    || '-' || upper(substr(encode(gen_random_bytes(3), 'hex'), 1, 4));
+
+  insert into customers (
+    name, phone, address, neighborhood, birthday, accepts_whatsapp
+  ) values (
+    customer_name_value,
+    customer_phone_value,
+    nullif(trim(payload ->> 'address'), ''),
+    nullif(neighborhood_value, ''),
+    nullif(payload ->> 'birthday', '')::date,
+    false
+  )
+  on conflict (phone) do update set
+    name = excluded.name,
+    address = coalesce(excluded.address, customers.address),
+    neighborhood = coalesce(excluded.neighborhood, customers.neighborhood),
+    birthday = coalesce(excluded.birthday, customers.birthday)
+  returning id into customer_record_id;
+
+  insert into orders (
+    order_number, customer_id, customer_name, customer_phone,
+    delivery_type, address, neighborhood, delivery_fee,
+    subtotal, total, status, gift_message, notes
+  ) values (
+    order_number_value,
+    customer_record_id,
+    customer_name_value,
+    customer_phone_value,
+    case when neighborhood_value = 'Retirada na loja' then 'pickup' else 'delivery' end,
+    nullif(trim(payload ->> 'address'), ''),
+    nullif(neighborhood_value, ''),
+    delivery_fee_value,
+    subtotal_value,
+    total_value,
+    'awaiting_payment',
+    nullif(left(payload ->> 'gift_message', 500), ''),
+    nullif(left(payload ->> 'notes', 1000), '')
+  )
+  returning id into new_order_id;
+
+  for item in select * from jsonb_array_elements(payload -> 'items')
+  loop
+    item_quantity := greatest(1, least(99, (item ->> 'quantity')::integer));
+    item_gift_wrap := coalesce((item ->> 'gift_wrap')::boolean, false);
+    select * into product_record
+    from products
+    where id = (item ->> 'product_id')::uuid and is_active = true;
+
+    insert into order_items (
+      order_id, product_id, product_name, unit_price, quantity, gift_wrap
+    ) values (
+      new_order_id,
+      product_record.id,
+      product_record.name,
+      product_record.price,
+      item_quantity,
+      item_gift_wrap
+    );
+  end loop;
+
+  return jsonb_build_object(
+    'id', new_order_id,
+    'order_number', order_number_value,
+    'total', total_value
+  );
+end;
+$$;
+
+revoke all on function public.create_store_order(jsonb) from public;
+grant execute on function public.create_store_order(jsonb) to anon, authenticated;
+
+create or replace function public.fulfill_paid_order()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  item_record record;
+begin
+  if new.status = 'paid' and old.status <> 'paid' then
+    for item_record in
+      select product_id, product_name, quantity
+      from order_items
+      where order_id = new.id
+    loop
+      update products
+      set stock = stock - item_record.quantity
+      where id = item_record.product_id
+        and stock >= item_record.quantity;
+      if not found then
+        raise exception 'Estoque insuficiente para %', item_record.product_name;
+      end if;
+    end loop;
+    update customers
+    set loyalty_purchases = loyalty_purchases + 1
+    where id = new.customer_id;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists orders_fulfill_payment on orders;
+create trigger orders_fulfill_payment
+before update of status on orders
+for each row execute function public.fulfill_paid_order();
+
 create index if not exists products_category_idx on products(category_id);
 create index if not exists products_active_idx on products(is_active);
 create index if not exists products_code_idx on products(code);
@@ -464,6 +639,37 @@ insert into categories (name, slug, adult_only) values
 on conflict (slug) do update set
   name = excluded.name,
   adult_only = excluded.adult_only;
+
+with seed (
+  code, category_slug, name, slug, brand, product_type, description,
+  cost_price, price, compare_at_price, stock, image_url, badge, adult_only
+) as (values
+  ('AND-001','perfumes-femininos','Aura Élégance','aura-elegance-and-001','Andora Selection','Eau de Parfum','Floral âmbar elegante, com saída luminosa e fundo envolvente.',98.00,189.90,229.90,12,'https://images.unsplash.com/photo-1541643600914-78b084683601?auto=format&fit=crop&w=900&q=86','Mais vendido',false),
+  ('AND-002','perfumes-masculinos','Noble Intense','noble-intense-and-002','Andora Selection','Eau de Parfum','Madeiras nobres, especiarias quentes e assinatura marcante.',116.00,219.90,null,7,'https://images.unsplash.com/photo-1594035910387-fea47794261f?auto=format&fit=crop&w=900&q=86','Lançamento',false),
+  ('AND-003','perfumes-importados','Maison Dorée','maison-doree-and-003','Maison','Importado','Uma fragrância sofisticada para ocasiões inesquecíveis.',214.00,349.90,null,4,'https://images.unsplash.com/photo-1587017539504-67cfbddac569?auto=format&fit=crop&w=900&q=86','Exclusivo',false),
+  ('AND-004','contratipos','Essência 214','essencia-214-and-004','Essencial','Contratipo','Alta fixação e personalidade, inspirada em grandes clássicos.',36.00,79.90,null,18,'https://images.unsplash.com/photo-1619994403073-2cec844b8e63?auto=format&fit=crop&w=900&q=86','Favorito',false),
+  ('AND-005','chocolates','Caixa Cacau Nobre','caixa-cacau-nobre-and-005','Cacau Nobre','Chocolate fino','Seleção de bombons finos em embalagem especial.',38.00,69.90,null,20,'https://images.unsplash.com/photo-1549007994-cb92caebd54b?auto=format&fit=crop&w=900&q=86','Presenteável',false),
+  ('AND-006','kits-presente','Ritual de Carinho','ritual-de-carinho-and-006','Andora','Kit','Perfume, chocolate fino, cartão e embalagem premium.',87.00,159.90,179.90,8,'https://images.unsplash.com/photo-1602173574767-37ac01994b2a?auto=format&fit=crop&w=900&q=86','Kit especial',false),
+  ('AND-007','cosmeticos','Velvet Body Cream','velvet-body-cream-and-007','Andora Beauty','Hidratante','Textura aveludada, fragrância delicada e hidratação profunda.',24.50,54.90,null,15,'https://images.unsplash.com/photo-1571781926291-c477ebfd024b?auto=format&fit=crop&w=900&q=86',null,false),
+  ('AND-008','produtos-especiais','Noir Privé','noir-prive-and-008','Linha Íntima','Bem-estar','Item de bem-estar íntimo em embalagem reservada e envio discreto.',61.00,119.90,null,9,'https://images.unsplash.com/photo-1615634260167-c8cdede054de?auto=format&fit=crop&w=900&q=80','+18',true)
+)
+insert into products (
+  code, category_id, name, slug, brand, product_type, description,
+  cost_price, price, compare_at_price, stock, image_url, badge,
+  adult_only, is_featured, is_promotion, is_launch, is_active
+)
+select
+  seed.code, categories.id, seed.name, seed.slug, seed.brand,
+  seed.product_type, seed.description, seed.cost_price, seed.price,
+  seed.compare_at_price, seed.stock, seed.image_url, seed.badge,
+  seed.adult_only,
+  seed.code in ('AND-001','AND-002','AND-006'),
+  seed.compare_at_price is not null,
+  seed.code = 'AND-002',
+  true
+from seed
+join categories on categories.slug = seed.category_slug
+on conflict (code) do nothing;
 
 insert into delivery_zones (name, fee) values
   ('Centro', 5.00),
