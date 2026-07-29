@@ -78,7 +78,8 @@ create table if not exists orders (
 
 alter table orders
   add column if not exists mercadopago_preference_id text,
-  add column if not exists mercadopago_payment_id text;
+  add column if not exists mercadopago_payment_id text,
+  add column if not exists coupon_code text;
 
 create table if not exists order_items (
   id uuid primary key default gen_random_uuid(),
@@ -338,6 +339,170 @@ $$;
 revoke all on function public.complete_pos_sale(jsonb) from public;
 grant execute on function public.complete_pos_sale(jsonb) to authenticated;
 
+create or replace function public.register_customer(payload jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  customer_record customers%rowtype;
+  customer_name_value text := trim(payload ->> 'name');
+  customer_phone_value text := regexp_replace(payload ->> 'phone', '[^0-9+]', '', 'g');
+begin
+  if length(customer_name_value) < 2 or length(customer_name_value) > 120 then
+    raise exception 'Informe um nome válido';
+  end if;
+  if length(customer_phone_value) < 10 or length(customer_phone_value) > 16 then
+    raise exception 'Informe um WhatsApp válido';
+  end if;
+
+  insert into customers (
+    name, phone, address, birthday, preferences, accepts_whatsapp
+  ) values (
+    customer_name_value,
+    customer_phone_value,
+    nullif(trim(payload ->> 'address'), ''),
+    nullif(payload ->> 'birthday', '')::date,
+    case
+      when nullif(trim(payload ->> 'preference'), '') is null then '{}'
+      else array[trim(payload ->> 'preference')]
+    end,
+    coalesce((payload ->> 'accepts_whatsapp')::boolean, false)
+  )
+  on conflict (phone) do update set
+    name = excluded.name,
+    address = coalesce(excluded.address, customers.address),
+    birthday = coalesce(excluded.birthday, customers.birthday),
+    preferences = case
+      when cardinality(excluded.preferences) > 0 then excluded.preferences
+      else customers.preferences
+    end,
+    accepts_whatsapp = excluded.accepts_whatsapp
+  returning * into customer_record;
+
+  return to_jsonb(customer_record);
+end;
+$$;
+
+revoke all on function public.register_customer(jsonb) from public;
+grant execute on function public.register_customer(jsonb) to anon, authenticated;
+
+create or replace function public.save_customer_admin(payload jsonb)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  customer_record customers%rowtype;
+  customer_id_value uuid := nullif(payload ->> 'id', '')::uuid;
+  customer_name_value text := trim(payload ->> 'name');
+  customer_phone_value text := regexp_replace(payload ->> 'phone', '[^0-9+]', '', 'g');
+  preference_value text := nullif(trim(payload ->> 'preference'), '');
+begin
+  if not public.is_admin() then
+    raise exception 'Acesso administrativo necessário';
+  end if;
+  if length(customer_name_value) < 2 or length(customer_name_value) > 120 then
+    raise exception 'Informe um nome válido';
+  end if;
+  if length(customer_phone_value) < 10 or length(customer_phone_value) > 16 then
+    raise exception 'Informe um WhatsApp válido com DDD';
+  end if;
+
+  if customer_id_value is not null then
+    update customers set
+      name = customer_name_value,
+      phone = customer_phone_value,
+      address = nullif(trim(payload ->> 'address'), ''),
+      neighborhood = nullif(trim(payload ->> 'neighborhood'), ''),
+      birthday = nullif(payload ->> 'birthday', '')::date,
+      preferences = case when preference_value is null then '{}' else array[preference_value] end,
+      accepts_whatsapp = coalesce((payload ->> 'accepts_whatsapp')::boolean, false),
+      updated_at = now()
+    where id = customer_id_value
+    returning * into customer_record;
+  else
+    insert into customers (
+      name, phone, address, neighborhood, birthday, preferences, accepts_whatsapp
+    ) values (
+      customer_name_value,
+      customer_phone_value,
+      nullif(trim(payload ->> 'address'), ''),
+      nullif(trim(payload ->> 'neighborhood'), ''),
+      nullif(payload ->> 'birthday', '')::date,
+      case when preference_value is null then '{}' else array[preference_value] end,
+      coalesce((payload ->> 'accepts_whatsapp')::boolean, false)
+    )
+    on conflict (phone) do update set
+      name = excluded.name,
+      address = excluded.address,
+      neighborhood = excluded.neighborhood,
+      birthday = excluded.birthday,
+      preferences = excluded.preferences,
+      accepts_whatsapp = excluded.accepts_whatsapp,
+      updated_at = now()
+    returning * into customer_record;
+  end if;
+
+  if customer_record.id is null then
+    raise exception 'Cliente não localizado';
+  end if;
+  return to_jsonb(customer_record);
+end;
+$$;
+
+revoke all on function public.save_customer_admin(jsonb) from public;
+grant execute on function public.save_customer_admin(jsonb) to authenticated;
+
+create or replace function public.validate_coupon(
+  coupon_code text,
+  order_subtotal numeric
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  coupon_record coupons%rowtype;
+  discount_value_calculated numeric(12,2) := 0;
+begin
+  select * into coupon_record
+  from coupons
+  where upper(code) = upper(trim(coupon_code))
+    and active = true
+    and (starts_at is null or starts_at <= now())
+    and (expires_at is null or expires_at >= now())
+    and (usage_limit is null or usage_count < usage_limit);
+
+  if coupon_record.id is null then
+    raise exception 'Cupom inválido, expirado ou indisponível';
+  end if;
+  if order_subtotal < coupon_record.minimum_order then
+    raise exception 'Este cupom exige pedido mínimo de R$ %', coupon_record.minimum_order;
+  end if;
+
+  discount_value_calculated := case coupon_record.discount_type
+    when 'percentage' then round(order_subtotal * least(coupon_record.discount_value, 100) / 100, 2)
+    when 'fixed' then least(coupon_record.discount_value, order_subtotal)
+    else 0
+  end;
+
+  return jsonb_build_object(
+    'code', coupon_record.code,
+    'discount_type', coupon_record.discount_type,
+    'discount_value', coupon_record.discount_value,
+    'minimum_order', coupon_record.minimum_order,
+    'discount', discount_value_calculated
+  );
+end;
+$$;
+
+revoke all on function public.validate_coupon(text, numeric) from public;
+grant execute on function public.validate_coupon(text, numeric) to anon, authenticated;
+
 create or replace function public.create_store_order(payload jsonb)
 returns jsonb
 language plpgsql
@@ -350,14 +515,17 @@ declare
   order_number_value text;
   item jsonb;
   product_record products%rowtype;
+  coupon_record coupons%rowtype;
   item_quantity integer;
   item_gift_wrap boolean;
   subtotal_value numeric(12,2) := 0;
   delivery_fee_value numeric(12,2) := 0;
+  discount_value_calculated numeric(12,2) := 0;
   total_value numeric(12,2) := 0;
   customer_name_value text := trim(payload ->> 'customer_name');
   customer_phone_value text := regexp_replace(payload ->> 'customer_phone', '[^0-9+]', '', 'g');
   neighborhood_value text := trim(payload ->> 'neighborhood');
+  coupon_code_value text := upper(trim(coalesce(payload ->> 'coupon_code', '')));
 begin
   if length(customer_name_value) < 2 or length(customer_name_value) > 120 then
     raise exception 'Informe um nome válido';
@@ -400,9 +568,34 @@ begin
   from delivery_zones
   where name = neighborhood_value and active = true;
   delivery_fee_value := coalesce(delivery_fee_value, 0);
-  total_value := subtotal_value + delivery_fee_value;
+
+  if coupon_code_value <> '' then
+    select * into coupon_record
+    from coupons
+    where upper(code) = coupon_code_value
+      and active = true
+      and (starts_at is null or starts_at <= now())
+      and (expires_at is null or expires_at >= now())
+      and (usage_limit is null or usage_count < usage_limit)
+    for update;
+
+    if coupon_record.id is null then
+      raise exception 'Cupom inválido, expirado ou indisponível';
+    end if;
+    if subtotal_value < coupon_record.minimum_order then
+      raise exception 'Este cupom exige pedido mínimo de R$ %', coupon_record.minimum_order;
+    end if;
+
+    discount_value_calculated := case coupon_record.discount_type
+      when 'percentage' then round(subtotal_value * least(coupon_record.discount_value, 100) / 100, 2)
+      when 'fixed' then least(coupon_record.discount_value, subtotal_value)
+      else 0
+    end;
+  end if;
+
+  total_value := greatest(subtotal_value - discount_value_calculated, 0) + delivery_fee_value;
   order_number_value := 'AE-' || to_char(clock_timestamp(), 'YYMMDD-HH24MISS')
-    || '-' || upper(substr(encode(gen_random_bytes(3), 'hex'), 1, 4));
+    || '-' || upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 4));
 
   insert into customers (
     name, phone, address, neighborhood, birthday, accepts_whatsapp
@@ -424,7 +617,7 @@ begin
   insert into orders (
     order_number, customer_id, customer_name, customer_phone,
     delivery_type, address, neighborhood, delivery_fee,
-    subtotal, total, status, gift_message, notes
+    subtotal, discount, total, status, gift_message, notes, coupon_code
   ) values (
     order_number_value,
     customer_record_id,
@@ -435,10 +628,12 @@ begin
     nullif(neighborhood_value, ''),
     delivery_fee_value,
     subtotal_value,
+    discount_value_calculated,
     total_value,
     'awaiting_payment',
     nullif(left(payload ->> 'gift_message', 500), ''),
-    nullif(left(payload ->> 'notes', 1000), '')
+    nullif(left(payload ->> 'notes', 1000), ''),
+    nullif(coupon_code_value, '')
   )
   returning id into new_order_id;
 
@@ -465,6 +660,7 @@ begin
   return jsonb_build_object(
     'id', new_order_id,
     'order_number', order_number_value,
+    'discount', discount_value_calculated,
     'total', total_value
   );
 end;
@@ -472,6 +668,40 @@ $$;
 
 revoke all on function public.create_store_order(jsonb) from public;
 grant execute on function public.create_store_order(jsonb) to anon, authenticated;
+
+create or replace function public.get_order_payment_quote(order_number_value text)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  order_record orders%rowtype;
+  item_count_value integer;
+begin
+  select * into order_record
+  from orders
+  where order_number = trim(order_number_value)
+    and status in ('awaiting_payment', 'received');
+
+  if order_record.id is null then
+    raise exception 'Pedido não encontrado ou indisponível para pagamento';
+  end if;
+
+  select coalesce(sum(quantity), 0)::integer into item_count_value
+  from order_items
+  where order_id = order_record.id;
+
+  return jsonb_build_object(
+    'order_number', order_record.order_number,
+    'total', order_record.total,
+    'item_count', item_count_value
+  );
+end;
+$$;
+
+revoke all on function public.get_order_payment_quote(text) from public;
+grant execute on function public.get_order_payment_quote(text) to anon, authenticated;
 
 create or replace function public.fulfill_paid_order()
 returns trigger
@@ -499,6 +729,12 @@ begin
     update customers
     set loyalty_purchases = loyalty_purchases + 1
     where id = new.customer_id;
+
+    if new.coupon_code is not null then
+      update coupons
+      set usage_count = usage_count + 1
+      where upper(code) = upper(new.coupon_code);
+    end if;
   end if;
   return new;
 end;
@@ -516,6 +752,7 @@ create index if not exists orders_status_idx on orders(status);
 create index if not exists orders_created_at_idx on orders(created_at desc);
 create index if not exists sales_created_at_idx on sales(created_at desc);
 create index if not exists customers_birthday_idx on customers(birthday);
+create index if not exists coupons_code_upper_idx on coupons(upper(code));
 
 alter table categories enable row level security;
 alter table products enable row level security;
@@ -678,6 +915,13 @@ insert into delivery_zones (name, fee) values
   ('Outro bairro', 10.00),
   ('Retirada na loja', 0.00)
 on conflict (name) do update set fee = excluded.fee, active = true;
+
+insert into coupons (
+  code, discount_type, discount_value, minimum_order, active
+) values
+  ('ANDORA15', 'percentage', 15.00, 0.00, true),
+  ('BEMVINDA10', 'percentage', 10.00, 0.00, true)
+on conflict (code) do nothing;
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values

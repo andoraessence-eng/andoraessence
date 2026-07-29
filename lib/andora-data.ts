@@ -85,6 +85,27 @@ export type StoreOrder = {
   items: { name: string; quantity: number; unitPrice: number }[];
 };
 
+export type Coupon = {
+  id: string;
+  code: string;
+  discountType: "percentage" | "fixed" | "gift_wrap";
+  discountValue: number;
+  minimumOrder: number;
+  active: boolean;
+  startsAt?: string;
+  expiresAt?: string;
+  usageLimit?: number;
+  usageCount: number;
+};
+
+export type AppliedCoupon = {
+  code: string;
+  discountType: Coupon["discountType"];
+  discountValue: number;
+  minimumOrder: number;
+  discount: number;
+};
+
 function slugify(value: string) {
   return value
     .normalize("NFD")
@@ -339,7 +360,7 @@ export async function deletePublication(id: string) {
 export async function loadAdminData() {
   const supabase = getSupabase();
   if (!supabase) return null;
-  const [sales, expenses, withdrawals, customers, orders] = await Promise.all([
+  const [sales, expenses, withdrawals, customers, orders, coupons] = await Promise.all([
     supabase
       .from("sales")
       .select("*, sale_items(*), sale_payments(*)")
@@ -359,12 +380,17 @@ export async function loadAdminData() {
       .from("orders")
       .select("*, order_items(*)")
       .order("created_at", { ascending: false }),
+    supabase
+      .from("coupons")
+      .select("*")
+      .order("created_at", { ascending: false }),
   ]);
   if (sales.error) throw sales.error;
   if (expenses.error) throw expenses.error;
   if (withdrawals.error) throw withdrawals.error;
   if (customers.error) throw customers.error;
   if (orders.error) throw orders.error;
+  if (coupons.error) throw coupons.error;
   return {
     sales: (sales.data ?? []).map((row: Record<string, any>) => ({
       id: row.sale_number,
@@ -442,6 +468,18 @@ export async function loadAdminData() {
         unitPrice: Number(item.unit_price),
       })),
     })) as StoreOrder[],
+    coupons: (coupons.data ?? []).map((row: Record<string, any>) => ({
+      id: String(row.id),
+      code: row.code,
+      discountType: row.discount_type,
+      discountValue: Number(row.discount_value),
+      minimumOrder: Number(row.minimum_order ?? 0),
+      active: Boolean(row.active),
+      startsAt: row.starts_at ?? undefined,
+      expiresAt: row.expires_at ?? undefined,
+      usageLimit: row.usage_limit ?? undefined,
+      usageCount: Number(row.usage_count ?? 0),
+    })) as Coupon[],
   };
 }
 
@@ -528,17 +566,16 @@ export async function createCustomer(input: {
 }) {
   const supabase = getSupabase();
   if (!supabase) throw new Error("Supabase indisponível.");
-  const { data, error } = await supabase.from("customers").upsert(
-    {
+  const { data, error } = await supabase.rpc("register_customer", {
+    payload: {
       name: input.name,
       phone: input.phone,
       address: input.address,
       birthday: input.birthday || null,
-      preferences: input.preference ? [input.preference] : [],
+      preference: input.preference || null,
       accepts_whatsapp: input.acceptsWhatsapp,
     },
-    { onConflict: "phone" },
-  ).select("*").single();
+  });
   if (error) throw error;
   return {
     id: String(data.id),
@@ -566,19 +603,18 @@ export async function saveCustomer(input: {
 }) {
   const supabase = getSupabase();
   if (!supabase) throw new Error("Supabase indisponível.");
-  const record = {
-    name: input.name.trim(),
-    phone: input.phone.trim(),
-    address: input.address.trim(),
-    neighborhood: input.neighborhood?.trim() || null,
-    birthday: input.birthday || null,
-    preferences: input.preference ? [input.preference] : [],
-    accepts_whatsapp: input.acceptsWhatsapp,
-  };
-  const query = input.id
-    ? supabase.from("customers").update(record).eq("id", input.id)
-    : supabase.from("customers").insert(record);
-  const { data, error } = await query.select("*").single();
+  const { data, error } = await supabase.rpc("save_customer_admin", {
+    payload: {
+      id: input.id || null,
+      name: input.name,
+      phone: input.phone,
+      address: input.address,
+      neighborhood: input.neighborhood || null,
+      birthday: input.birthday || null,
+      preference: input.preference || null,
+      accepts_whatsapp: input.acceptsWhatsapp,
+    },
+  });
   if (error) throw error;
   return {
     id: String(data.id),
@@ -594,6 +630,70 @@ export async function saveCustomer(input: {
   } satisfies Customer;
 }
 
+export async function validateCoupon(
+  code: string,
+  subtotal: number,
+): Promise<AppliedCoupon> {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("Supabase indisponível.");
+  const { data, error } = await supabase.rpc("validate_coupon", {
+    coupon_code: code,
+    order_subtotal: subtotal,
+  });
+  if (error) throw error;
+  return {
+    code: data.code,
+    discountType: data.discount_type,
+    discountValue: Number(data.discount_value),
+    minimumOrder: Number(data.minimum_order ?? 0),
+    discount: Number(data.discount ?? 0),
+  };
+}
+
+export async function saveCoupon(input: {
+  code: string;
+  discountType: Coupon["discountType"];
+  discountValue: number;
+  minimumOrder: number;
+  startsAt?: string;
+  expiresAt?: string;
+  usageLimit?: number;
+  active: boolean;
+}) {
+  const supabase = getSupabase();
+  if (!supabase) throw new Error("Supabase indisponível.");
+  const { data, error } = await supabase
+    .from("coupons")
+    .upsert(
+      {
+        code: input.code.trim().toUpperCase(),
+        discount_type: input.discountType,
+        discount_value: input.discountValue,
+        minimum_order: input.minimumOrder,
+        starts_at: input.startsAt || null,
+        expires_at: input.expiresAt || null,
+        usage_limit: input.usageLimit || null,
+        active: input.active,
+      },
+      { onConflict: "code" },
+    )
+    .select("*")
+    .single();
+  if (error) throw error;
+  return {
+    id: String(data.id),
+    code: data.code,
+    discountType: data.discount_type,
+    discountValue: Number(data.discount_value),
+    minimumOrder: Number(data.minimum_order ?? 0),
+    active: Boolean(data.active),
+    startsAt: data.starts_at ?? undefined,
+    expiresAt: data.expires_at ?? undefined,
+    usageLimit: data.usage_limit ?? undefined,
+    usageCount: Number(data.usage_count ?? 0),
+  } satisfies Coupon;
+}
+
 export async function createStoreOrder(input: {
   customer: {
     name: string;
@@ -604,6 +704,7 @@ export async function createStoreOrder(input: {
     notes?: string;
   };
   giftMessage?: string;
+  couponCode?: string;
   items: {
     productId: string;
     quantity: number;
@@ -621,6 +722,7 @@ export async function createStoreOrder(input: {
       birthday: input.customer.birthday || null,
       notes: input.customer.notes || null,
       gift_message: input.giftMessage || null,
+      coupon_code: input.couponCode || null,
       items: input.items.map((item) => ({
         product_id: item.productId,
         quantity: item.quantity,
